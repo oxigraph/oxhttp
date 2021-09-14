@@ -1,0 +1,17 @@
+[package]
+name = "oxhttp"
+version = "0.1.0"
+authors = ["Tpt <thomas@pellissier-tanon.fr>"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["HTTP"]
+repository = "https://github.com/oxigraph/oxhttp"
+description = """
+Very simple implementation of an HTTP client and server in Rust
+"""
+edition = "2018"
+
+[dependencies]
+httparse = "1"
+native-tls = { version = "0.2", optional = true }
+url = "2"
