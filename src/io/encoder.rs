@@ -73,36 +73,35 @@ pub fn encode_response(response: Response<'_>, mut writer: impl Write) -> Result
     writer.flush()
 }
 
-fn encode_body(body: Option<Body<'_>>, writer: &mut impl Write) -> Result<()> {
-    // body with content-length if existing
-    if let Some(mut body) = body {
-        if let Some(length) = body.len() {
+fn encode_body(mut body: Body<'_>, writer: &mut impl Write) -> Result<()> {
+    if let Some(length) = body.len() {
+        if length > 0 {
             write!(writer, "content-length: {}\r\n\r\n", length)?;
             copy(&mut body, writer)?;
         } else {
-            write!(writer, "transfer-encoding: chunked\r\n\r\n")?;
-            let mut buffer = [b'\0'; 1024];
-            loop {
-                let read = body.read(&mut buffer)?;
-                write!(writer, "{}\r\n", read)?;
-                writer.write_all(&buffer[..read])?;
-                write!(writer, "\r\n")?;
-                if read == 0 {
-                    break; // Done
-                }
-            }
-            if let Some(trailers) = body.trailers() {
-                for (name, value) in trailers {
-                    if !is_forbidden_name(name) {
-                        write!(writer, "{}: ", name)?;
-                        writer.write_all(value)?;
-                        write!(writer, "\r\n")?;
-                    }
-                }
-            }
             write!(writer, "\r\n")?;
         }
     } else {
+        write!(writer, "transfer-encoding: chunked\r\n\r\n")?;
+        let mut buffer = [b'\0'; 1024];
+        loop {
+            let read = body.read(&mut buffer)?;
+            write!(writer, "{}\r\n", read)?;
+            writer.write_all(&buffer[..read])?;
+            write!(writer, "\r\n")?;
+            if read == 0 {
+                break; // Done
+            }
+        }
+        if let Some(trailers) = body.trailers() {
+            for (name, value) in trailers {
+                if !is_forbidden_name(name) {
+                    write!(writer, "{}: ", name)?;
+                    writer.write_all(value)?;
+                    write!(writer, "\r\n")?;
+                }
+            }
+        }
         write!(writer, "\r\n")?;
     }
     Ok(())

@@ -10,14 +10,14 @@ use crate::model::{Body, Headers, Status};
 /// let response = response.with_body("{\"foo\": \"bar\"}");
 ///
 /// assert_eq!(response.status(), Status::OK);
-/// assert_eq!(&response.into_body().unwrap().to_vec()?, b"{\"foo\": \"bar\"}");
+/// assert_eq!(&response.into_body().to_vec()?, b"{\"foo\": \"bar\"}");
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
 #[derive(Debug)]
 pub struct Response<'a> {
     status: Status,
     headers: Headers,
-    body: Option<Body<'a>>,
+    body: Body<'a>,
 }
 
 impl<'a> Response<'a> {
@@ -25,7 +25,7 @@ impl<'a> Response<'a> {
         Self {
             status,
             headers: Headers::new(),
-            body: None,
+            body: Body::default(),
         }
     }
 
@@ -41,16 +41,16 @@ impl<'a> Response<'a> {
         &mut self.headers
     }
 
-    pub fn body(&self) -> Option<&Body<'a>> {
-        self.body.as_ref()
+    pub fn body(&self) -> &Body<'a> {
+        &self.body
     }
 
     pub fn with_body(mut self, body: impl Into<Body<'a>>) -> Self {
-        self.body = Some(body.into());
+        self.body = body.into();
         self
     }
 
-    pub fn into_body(self) -> Option<Body<'a>> {
+    pub fn into_body(self) -> Body<'a> {
         self.body
     }
 }

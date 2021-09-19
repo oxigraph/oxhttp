@@ -380,9 +380,7 @@ mod tests {
         );
         let request = decode_request_body(decode_request_headers(&mut read, false)?, &mut read)?;
         let mut buffer = Vec::new();
-        if let Some(mut body) = request.into_body() {
-            body.read_to_end(&mut buffer)?;
-        }
+        request.into_body().read_to_end(&mut buffer)?;
         assert_eq!(buffer, b"foobarbar");
         Ok(())
     }
@@ -405,7 +403,6 @@ mod tests {
         assert!(
             decode_request_body(decode_request_headers(&mut read, false)?, &mut read)?
                 .into_body()
-                .unwrap()
                 .read_to_end(&mut buffer)
                 .is_err()
         );
@@ -416,7 +413,7 @@ mod tests {
     fn decode_response_without_payload() -> Result<()> {
         let response = decode_response(Cursor::new("HTTP/1.1 404 Not Found\r\n\r\n"))?;
         assert_eq!(response.status(), Status::NOT_FOUND);
-        assert!(response.body().is_none());
+        assert_eq!(response.body().len(), Some(0));
         Ok(())
     }
 
@@ -436,7 +433,7 @@ mod tests {
             "text/plain"
         );
         let mut buf = String::new();
-        response.into_body().unwrap().read_to_string(&mut buf)?;
+        response.into_body().read_to_string(&mut buf)?;
         assert_eq!(buf, "testbody");
         Ok(())
     }
@@ -457,7 +454,7 @@ mod tests {
             "text/plain"
         );
         let mut buf = String::new();
-        response.into_body().unwrap().read_to_string(&mut buf)?;
+        response.into_body().read_to_string(&mut buf)?;
         assert_eq!(buf, "Wikipedia in\r\n\r\nchunks.");
         Ok(())
     }
@@ -478,7 +475,7 @@ mod tests {
             "text/plain"
         );
         let mut buf = String::new();
-        let mut body = response.into_body().unwrap();
+        let mut body = response.into_body();
         body.read_to_string(&mut buf)?;
         assert_eq!(buf, "Wikipedia in\r\n\r\nchunks.");
         assert_eq!(
@@ -498,11 +495,7 @@ mod tests {
             "HTTP/1.1 200 OK\r\ntransfer-encoding:chunked\r\n\r\n4\r\nWiki\r\n0\r\ntest\n: foo\r\n\r\n",
         ))?;
         let mut buf = String::new();
-        assert!(response
-            .into_body()
-            .unwrap()
-            .read_to_string(&mut buf)
-            .is_err());
+        assert!(response.into_body().read_to_string(&mut buf).is_err());
         Ok(())
     }
 
@@ -523,7 +516,6 @@ mod tests {
             "HTTP/1.1 200 OK\r\ncontent-length: 12\r\n\r\nfoobar"
         ))?
         .into_body()
-        .unwrap()
         .read_to_end(&mut buffer)
         .is_err());
         Ok(())

@@ -11,7 +11,7 @@ use crate::model::{Body, Headers, Method, Url};
 ///
 /// assert_eq!(*request.method(), Method::POST);
 /// assert_eq!(request.url().as_str(), "http://example.com/foo");
-/// assert_eq!(&request.into_body().unwrap().to_vec()?, b"{\"foo\": \"bar\"}");
+/// assert_eq!(&request.into_body().to_vec()?, b"{\"foo\": \"bar\"}");
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
 #[derive(Debug)]
@@ -19,7 +19,7 @@ pub struct Request<'a> {
     method: Method,
     url: Url,
     headers: Headers,
-    body: Option<Body<'a>>,
+    body: Body<'a>,
 }
 
 impl<'a> Request<'a> {
@@ -28,7 +28,7 @@ impl<'a> Request<'a> {
             method,
             url,
             headers: Headers::new(),
-            body: None,
+            body: Body::default(),
         }
     }
 
@@ -48,16 +48,16 @@ impl<'a> Request<'a> {
         &mut self.headers
     }
 
-    pub fn body(&self) -> Option<&Body<'a>> {
-        self.body.as_ref()
+    pub fn body(&self) -> &Body<'a> {
+        &self.body
     }
 
     pub fn with_body(mut self, body: impl Into<Body<'a>>) -> Self {
-        self.body = Some(body.into());
+        self.body = body.into();
         self
     }
 
-    pub fn into_body(self) -> Option<Body<'a>> {
+    pub fn into_body(self) -> Body<'a> {
         self.body
     }
 }

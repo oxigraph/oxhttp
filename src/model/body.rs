@@ -112,7 +112,7 @@ impl<'a> Read for Body<'a> {
 
 impl<'a> Default for Body<'a> {
     fn default() -> Self {
-        Vec::new().into()
+        b"".as_ref().into()
     }
 }
 
