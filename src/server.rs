@@ -33,15 +33,13 @@ use std::time::Duration;
 /// ```
 #[allow(missing_copy_implementations)]
 pub struct Server {
-    on_request: Arc<dyn Fn(Request<'_>) -> Response<'static> + Send + Sync + 'static>,
+    on_request: Arc<dyn Fn(Request) -> Response + Send + Sync + 'static>,
     timeout: Option<Duration>,
 }
 
 impl Server {
     /// Builds the server using the given `on_request` method that builds a `Response` from a given `Request`.
-    pub fn new(
-        on_request: impl Fn(Request<'_>) -> Response<'static> + Send + Sync + 'static,
-    ) -> Self {
+    pub fn new(on_request: impl Fn(Request) -> Response + Send + Sync + 'static) -> Self {
         Self {
             on_request: Arc::new(on_request),
             timeout: None,
@@ -80,15 +78,15 @@ impl Server {
 
 fn accept_request(
     mut stream: TcpStream,
-    on_request: Arc<dyn Fn(Request<'_>) -> Response<'static>>,
+    on_request: Arc<dyn Fn(Request) -> Response>,
     timeout: Option<Duration>,
 ) -> Result<()> {
     stream.set_read_timeout(timeout)?;
     stream.set_write_timeout(timeout)?;
-
     let mut close = false;
     while !close {
-        let response = match decode_request_headers(BufReader::new(&mut stream), false) {
+        let mut reader = BufReader::new(stream.try_clone()?);
+        let response = match decode_request_headers(&mut reader, false) {
             Ok(request) => {
                 // handle close
                 close = request
@@ -99,7 +97,7 @@ fn accept_request(
                 if let Some(expect) = request.headers().get(&HeaderName::EXPECT).cloned() {
                     if expect.eq_ignore_ascii_case(b"100-continue") {
                         stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
-                        match decode_request_body(request, BufReader::new(&mut stream)) {
+                        match decode_request_body(request, reader) {
                             Ok(request) => on_request(request),
                             Err(error) => build_error(error, Status::BAD_REQUEST),
                         }
@@ -116,7 +114,7 @@ fn accept_request(
                         )
                     }
                 } else {
-                    match decode_request_body(request, BufReader::new(&mut stream)) {
+                    match decode_request_body(request, reader) {
                         Ok(request) => on_request(request),
                         Err(error) => build_error(error, Status::BAD_REQUEST),
                     }
@@ -129,7 +127,7 @@ fn accept_request(
     Ok(())
 }
 
-fn build_error(error: Error, other_kind_status: Status) -> Response<'static> {
+fn build_error(error: Error, other_kind_status: Status) -> Response {
     Response::new(match error.kind() {
         ErrorKind::TimedOut => Status::REQUEST_TIMEOUT,
         ErrorKind::InvalidData => Status::BAD_REQUEST,

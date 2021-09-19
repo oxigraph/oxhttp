@@ -15,14 +15,14 @@ use crate::model::{Body, Headers, Method, Url};
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
 #[derive(Debug)]
-pub struct Request<'a> {
+pub struct Request {
     method: Method,
     url: Url,
     headers: Headers,
-    body: Body<'a>,
+    body: Body,
 }
 
-impl<'a> Request<'a> {
+impl Request {
     pub fn new(method: Method, url: Url) -> Self {
         Self {
             method,
@@ -48,16 +48,16 @@ impl<'a> Request<'a> {
         &mut self.headers
     }
 
-    pub fn body(&self) -> &Body<'a> {
+    pub fn body(&self) -> &Body {
         &self.body
     }
 
-    pub fn with_body(mut self, body: impl Into<Body<'a>>) -> Self {
+    pub fn with_body(mut self, body: impl Into<Body>) -> Self {
         self.body = body.into();
         self
     }
 
-    pub fn into_body(self) -> Body<'a> {
+    pub fn into_body(self) -> Body {
         self.body
     }
 }

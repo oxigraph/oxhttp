@@ -12,11 +12,11 @@ use std::str::FromStr;
 const DEFAULT_SIZE: usize = 1024;
 
 pub fn decode_request_headers(
-    mut reader: impl BufRead,
+    reader: &mut impl BufRead,
     is_connection_secure: bool,
-) -> Result<Request<'static>> {
+) -> Result<Request> {
     // Let's read the headers
-    let buffer = read_header_bytes(&mut reader)?;
+    let buffer = read_header_bytes(reader)?;
     let mut headers = [httparse::EMPTY_HEADER; DEFAULT_SIZE];
     let mut parsed_request = httparse::Request::new(&mut headers);
     if parsed_request
@@ -76,10 +76,7 @@ pub fn decode_request_headers(
     Ok(request)
 }
 
-pub fn decode_request_body<'a>(
-    request: Request<'a>,
-    reader: impl BufRead + 'a,
-) -> Result<Request<'a>> {
+pub fn decode_request_body(request: Request, reader: impl BufRead + 'static) -> Result<Request> {
     Ok(
         if let Some(body) = decode_body(request.headers(), reader)? {
             request.with_body(body)
@@ -89,7 +86,7 @@ pub fn decode_request_body<'a>(
     )
 }
 
-pub fn decode_response<'a>(mut reader: impl BufRead + 'a) -> Result<Response<'a>> {
+pub fn decode_response(mut reader: impl BufRead + 'static) -> Result<Response> {
     // Let's read the headers
     let buffer = read_header_bytes(&mut reader)?;
     let mut headers = [httparse::EMPTY_HEADER; DEFAULT_SIZE];
@@ -151,7 +148,7 @@ fn read_header_bytes(mut reader: impl BufRead) -> Result<Vec<u8>> {
     Ok(buffer)
 }
 
-fn decode_body<'a>(headers: &Headers, reader: impl BufRead + 'a) -> Result<Option<Body<'a>>> {
+fn decode_body(headers: &Headers, reader: impl BufRead + 'static) -> Result<Option<Body>> {
     let content_length = headers.get(&HeaderName::CONTENT_LENGTH);
     let transfer_encoding = headers.get(&HeaderName::TRANSFER_ENCODING);
     if transfer_encoding.is_some() && content_length.is_some() {
@@ -305,7 +302,7 @@ mod tests {
     #[test]
     fn decode_request_target_origin_form() -> Result<()> {
         let request = decode_request_headers(
-            Cursor::new("GET /where?q=now HTTP/1.1\nHost: www.example.org\n\n"),
+            &mut Cursor::new("GET /where?q=now HTTP/1.1\nHost: www.example.org\n\n"),
             false,
         )?;
         assert_eq!(request.url().as_str(), "http://www.example.org/where?q=now");
@@ -315,7 +312,7 @@ mod tests {
     #[test]
     fn decode_request_target_absolute_form_with_host() -> Result<()> {
         let request = decode_request_headers(
-            Cursor::new(
+            &mut Cursor::new(
                 "GET http://www.example.org/pub/WWW/TheProject.html HTTP/1.1\nHost: example.com\n\n",
             ),
             false,
@@ -330,7 +327,7 @@ mod tests {
     #[test]
     fn decode_request_target_absolute_form_without_host() {
         assert!(decode_request_headers(
-            Cursor::new("GET http://www.example.org/pub/WWW/TheProject.html HTTP/1.1\n\n"),
+            &mut Cursor::new("GET http://www.example.org/pub/WWW/TheProject.html HTTP/1.1\n\n"),
             false,
         )
         .is_err());
@@ -339,7 +336,7 @@ mod tests {
     #[test]
     fn decode_request_target_asterisk_form() -> Result<()> {
         let request = decode_request_headers(
-            Cursor::new("OPTIONS * HTTP/1.1\nHost: www.example.org:8001\n\n"),
+            &mut Cursor::new("OPTIONS * HTTP/1.1\nHost: www.example.org:8001\n\n"),
             false,
         )?;
         assert_eq!(request.url().as_str(), "http://www.example.org:8001/"); //TODO: should be http://www.example.org:8001
@@ -349,7 +346,7 @@ mod tests {
     #[test]
     fn decode_request_with_header() -> Result<()> {
         let request = decode_request_headers(
-            Cursor::new(
+            &mut Cursor::new(
                 "GET / HTTP/1.1\nHost: www.example.org:8001\nFoo: v1\nbar: vbar\nfoo: v2\n\n",
             ),
             false,
@@ -378,7 +375,7 @@ mod tests {
         let mut read = Cursor::new(
             "GET / HTTP/1.1\nHost: www.example.org:8001\ncontent-length: 9\n\nfoobarbar",
         );
-        let request = decode_request_body(decode_request_headers(&mut read, false)?, &mut read)?;
+        let request = decode_request_body(decode_request_headers(&mut read, false)?, read)?;
         let mut buffer = Vec::new();
         request.into_body().read_to_end(&mut buffer)?;
         assert_eq!(buffer, b"foobarbar");
@@ -387,12 +384,12 @@ mod tests {
 
     #[test]
     fn decode_request_empty() {
-        assert!(decode_request_headers(Cursor::new(""), false).is_err());
+        assert!(decode_request_headers(&mut Cursor::new(""), false).is_err());
     }
 
     #[test]
     fn decode_request_stop_in_header() {
-        assert!(decode_request_headers(Cursor::new("GET /\r\n"), false).is_err());
+        assert!(decode_request_headers(&mut Cursor::new("GET /\r\n"), false).is_err());
     }
 
     #[test]
@@ -401,7 +398,7 @@ mod tests {
             Cursor::new("POST / HTTP/1.1\r\nhost: example.com\r\ncontent-length: 12\r\n\r\nfoobar");
         let mut buffer = Vec::new();
         assert!(
-            decode_request_body(decode_request_headers(&mut read, false)?, &mut read)?
+            decode_request_body(decode_request_headers(&mut read, false)?, read)?
                 .into_body()
                 .read_to_end(&mut buffer)
                 .is_err()

@@ -43,7 +43,7 @@ impl Client {
         self.timeout = timeout;
     }
 
-    pub fn request(&self, request: Request<'_>) -> Result<Response<'_>> {
+    pub fn request(&self, request: Request) -> Result<Response> {
         let scheme = request.url().scheme();
         let port = if let Some(port) = request.url().port() {
             port

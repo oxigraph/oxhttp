@@ -2,7 +2,7 @@ use crate::model::{Body, HeaderName, Request, Response};
 use crate::utils::invalid_input_error;
 use std::io::{copy, Read, Result, Write};
 
-pub fn encode_request(request: Request<'_>, mut writer: impl Write) -> Result<()> {
+pub fn encode_request(request: Request, mut writer: impl Write) -> Result<()> {
     if !request.url().username().is_empty() || request.url().password().is_some() {
         return Err(invalid_input_error(
             "Username and password are not allowed in HTTP URLs",
@@ -55,7 +55,7 @@ pub fn encode_request(request: Request<'_>, mut writer: impl Write) -> Result<()
     writer.flush()
 }
 
-pub fn encode_response(response: Response<'_>, mut writer: impl Write) -> Result<()> {
+pub fn encode_response(response: Response, mut writer: impl Write) -> Result<()> {
     write!(&mut writer, "HTTP/1.1 {}\r\n", response.status())?;
 
     // headers
@@ -73,7 +73,7 @@ pub fn encode_response(response: Response<'_>, mut writer: impl Write) -> Result
     writer.flush()
 }
 
-fn encode_body(mut body: Body<'_>, writer: &mut impl Write) -> Result<()> {
+fn encode_body(mut body: Body, writer: &mut impl Write) -> Result<()> {
     if let Some(length) = body.len() {
         if length > 0 {
             write!(writer, "content-length: {}\r\n\r\n", length)?;

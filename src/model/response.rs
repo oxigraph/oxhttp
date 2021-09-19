@@ -14,13 +14,13 @@ use crate::model::{Body, Headers, Status};
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
 #[derive(Debug)]
-pub struct Response<'a> {
+pub struct Response {
     status: Status,
     headers: Headers,
-    body: Body<'a>,
+    body: Body,
 }
 
-impl<'a> Response<'a> {
+impl Response {
     pub fn new(status: Status) -> Self {
         Self {
             status,
@@ -41,16 +41,16 @@ impl<'a> Response<'a> {
         &mut self.headers
     }
 
-    pub fn body(&self) -> &Body<'a> {
+    pub fn body(&self) -> &Body {
         &self.body
     }
 
-    pub fn with_body(mut self, body: impl Into<Body<'a>>) -> Self {
+    pub fn with_body(mut self, body: impl Into<Body>) -> Self {
         self.body = body.into();
         self
     }
 
-    pub fn into_body(self) -> Body<'a> {
+    pub fn into_body(self) -> Body {
         self.body
     }
 }

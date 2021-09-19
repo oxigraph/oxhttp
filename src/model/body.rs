@@ -7,28 +7,28 @@ use std::io::{Cursor, Error, ErrorKind, Read, Result};
 /// A request or response [body](https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#message.body).
 ///
 /// It implements the [`Read`] API.
-pub struct Body<'a>(BodyAlt<'a>);
+pub struct Body(BodyAlt);
 
-enum BodyAlt<'a> {
+enum BodyAlt {
     SimpleOwned(Cursor<Vec<u8>>),
-    SimpleBorrowed(&'a [u8]),
+    SimpleBorrowed(&'static [u8]),
     Sized {
-        content: Box<dyn Read + 'a>,
+        content: Box<dyn Read>,
         total_len: u64,
         consumed_len: u64,
     },
-    Chunked(Box<dyn ChunkedTransferPayload + 'a>),
+    Chunked(Box<dyn ChunkedTransferPayload>),
 }
 
-impl<'a> Body<'a> {
+impl Body {
     /// Creates a new body from a [`Read`] implementation.
     ///
     /// If the body is sent as an HTTP request or response it will be streamed using [chunked transfer encoding](https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#chunked.encoding).
-    pub fn from_read(read: impl Read + 'a) -> Self {
+    pub fn from_read(read: impl Read + 'static) -> Self {
         Self::from_chunked_transfer_payload(SimpleChunkedTransferEncoding(read))
     }
 
-    pub(crate) fn from_read_and_len(read: impl Read + 'a, len: u64) -> Self {
+    pub(crate) fn from_read_and_len(read: impl Read + 'static, len: u64) -> Self {
         Self(BodyAlt::Sized {
             total_len: len,
             consumed_len: 0,
@@ -37,7 +37,7 @@ impl<'a> Body<'a> {
     }
 
     /// Creates a [chunked transfer encoding](https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#chunked.encoding) body with optional trailers.
-    pub fn from_chunked_transfer_payload(payload: impl ChunkedTransferPayload + 'a) -> Self {
+    pub fn from_chunked_transfer_payload(payload: impl ChunkedTransferPayload + 'static) -> Self {
         Self(BodyAlt::Chunked(Box::new(payload)))
     }
 
@@ -80,7 +80,7 @@ impl<'a> Body<'a> {
     }
 }
 
-impl<'a> Read for Body<'a> {
+impl Read for Body {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         match &mut self.0 {
             BodyAlt::SimpleOwned(c) => c.read(buf),
@@ -110,37 +110,37 @@ impl<'a> Read for Body<'a> {
     }
 }
 
-impl<'a> Default for Body<'a> {
+impl Default for Body {
     fn default() -> Self {
         b"".as_ref().into()
     }
 }
 
-impl From<Vec<u8>> for Body<'static> {
+impl From<Vec<u8>> for Body {
     fn from(data: Vec<u8>) -> Self {
         Self(BodyAlt::SimpleOwned(Cursor::new(data)))
     }
 }
 
-impl From<String> for Body<'static> {
+impl From<String> for Body {
     fn from(data: String) -> Self {
         data.into_bytes().into()
     }
 }
 
-impl<'a> From<&'a [u8]> for Body<'a> {
-    fn from(data: &'a [u8]) -> Self {
+impl From<&'static [u8]> for Body {
+    fn from(data: &'static [u8]) -> Self {
         Self(BodyAlt::SimpleBorrowed(data))
     }
 }
 
-impl<'a> From<&'a str> for Body<'a> {
-    fn from(data: &'a str) -> Self {
+impl From<&'static str> for Body {
+    fn from(data: &'static str) -> Self {
         data.as_bytes().into()
     }
 }
 
-impl<'a> fmt::Debug for Body<'a> {
+impl fmt::Debug for Body {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
             BodyAlt::SimpleOwned(d) => f
