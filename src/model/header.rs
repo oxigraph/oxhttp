@@ -274,7 +274,7 @@ impl fmt::Display for HeaderName {
 /// assert_eq!(HeaderValue::from_str("foo")?.as_ref(), b"foo");
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
-#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Hash)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Hash, Default)]
 pub struct HeaderValue(Vec<u8>);
 
 impl HeaderValue {
