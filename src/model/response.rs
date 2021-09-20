@@ -1,13 +1,14 @@
-use crate::model::{Body, Headers, Status};
+use crate::model::{Body, HeaderName, HeaderValue, Headers, InvalidHeader, Status};
+use std::convert::TryInto;
 
 /// A HTTP response.
 ///
 /// ```
 /// use oxhttp::model::{HeaderName, Body, Response, Status};
 ///
-/// let mut response = Response::new(Status::OK);
-/// response.headers_mut().append(HeaderName::CONTENT_TYPE, "application/json".parse()?);
-/// let response = response.with_body("{\"foo\": \"bar\"}");
+/// let response = Response::new(Status::OK)
+///     .with_header(HeaderName::CONTENT_TYPE, "application/json")?
+///     .with_body("{\"foo\": \"bar\"}");
 ///
 /// assert_eq!(response.status(), Status::OK);
 /// assert_eq!(&response.into_body().to_vec()?, b"{\"foo\": \"bar\"}");
@@ -39,6 +40,15 @@ impl Response {
 
     pub fn headers_mut(&mut self) -> &mut Headers {
         &mut self.headers
+    }
+
+    pub fn with_header(
+        mut self,
+        name: HeaderName,
+        value: impl TryInto<HeaderValue, Error = InvalidHeader>,
+    ) -> Result<Self, InvalidHeader> {
+        self.headers_mut().append(name, value.try_into()?);
+        Ok(self)
     }
 
     pub fn body(&self) -> &Body {

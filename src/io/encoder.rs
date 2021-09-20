@@ -132,19 +132,18 @@ fn is_forbidden_name(header: &HeaderName) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Method, Url};
+    use crate::model::Method;
     use std::io::Cursor;
     use std::str;
 
     #[test]
     fn encode_get_request() -> Result<()> {
-        let mut request = Request::new(
+        let request = Request::new(
             Method::GET,
-            Url::parse("http://example.com/foo/bar?query#fragment").unwrap(),
-        );
-        request
-            .headers_mut()
-            .append(HeaderName::ACCEPT, "application/json".parse().unwrap());
+            "http://example.com/foo/bar?query#fragment".parse().unwrap(),
+        )
+        .with_header(HeaderName::ACCEPT, "application/json")
+        .unwrap();
         let mut buffer = Vec::new();
         encode_request(request, &mut buffer)?;
         assert_eq!(
@@ -156,15 +155,15 @@ mod tests {
 
     #[test]
     fn encode_post_request() -> Result<()> {
-        let mut request = Request::new(
+        let request = Request::new(
             Method::POST,
-            Url::parse("http://example.com/foo/bar?query#fragment").unwrap(),
-        );
-        request
-            .headers_mut()
-            .append(HeaderName::ACCEPT, "application/json".parse().unwrap());
+            "http://example.com/foo/bar?query#fragment".parse().unwrap(),
+        )
+        .with_header(HeaderName::ACCEPT, "application/json")
+        .unwrap()
+        .with_body(b"testbody".as_ref());
         let mut buffer = Vec::new();
-        encode_request(request.with_body(b"testbody".as_ref()), &mut buffer)?;
+        encode_request(request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\nconnection: close\r\naccept: application/json\r\ncontent-length: 8\r\n\r\ntestbody"
@@ -176,13 +175,11 @@ mod tests {
     fn encode_post_request_with_chunked() -> Result<()> {
         let request = Request::new(
             Method::POST,
-            Url::parse("http://example.com/foo/bar?query#fragment").unwrap(),
-        );
+            "http://example.com/foo/bar?query#fragment".parse().unwrap(),
+        )
+        .with_body(Body::from_read(Cursor::new(b"testbody")));
         let mut buffer = Vec::new();
-        encode_request(
-            request.with_body(Body::from_read(Cursor::new(b"testbody"))),
-            &mut buffer,
-        )?;
+        encode_request(request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\nconnection: close\r\ntransfer-encoding: chunked\r\n\r\n8\r\ntestbody\r\n0\r\n\r\n\r\n"

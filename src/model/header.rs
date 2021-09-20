@@ -227,6 +227,14 @@ impl FromStr for HeaderName {
     }
 }
 
+impl TryFrom<&str> for HeaderName {
+    type Error = InvalidHeader;
+
+    fn try_from(value: &str) -> Result<Self, InvalidHeader> {
+        value.to_owned().try_into()
+    }
+}
+
 impl TryFrom<String> for HeaderName {
     type Error = InvalidHeader;
 
@@ -302,11 +310,27 @@ impl FromStr for HeaderValue {
     }
 }
 
+impl TryFrom<&str> for HeaderValue {
+    type Error = InvalidHeader;
+
+    fn try_from(value: &str) -> Result<Self, InvalidHeader> {
+        value.to_owned().try_into()
+    }
+}
+
 impl TryFrom<String> for HeaderValue {
     type Error = InvalidHeader;
 
     fn try_from(value: String) -> Result<Self, InvalidHeader> {
         value.into_bytes().try_into()
+    }
+}
+
+impl TryFrom<&[u8]> for HeaderValue {
+    type Error = InvalidHeader;
+
+    fn try_from(value: &[u8]) -> Result<Self, InvalidHeader> {
+        value.to_owned().try_into()
     }
 }
 

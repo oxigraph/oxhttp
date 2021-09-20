@@ -16,7 +16,7 @@ It aims at following the basic concepts of the [Web Fetch standard](https://fetc
 Example:
 ```rust
 let client = Client::new();
-let response = client.request(Request::new(Method::GET, Url::parse("http://example.com")?))?;
+let response = client.request(Request::new(Method::GET, "http://example.com".parse()?))?;
 ```
 
 ## Server

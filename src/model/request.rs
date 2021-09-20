@@ -1,13 +1,14 @@
-use crate::model::{Body, Headers, Method, Url};
+use crate::model::{Body, HeaderName, HeaderValue, Headers, InvalidHeader, Method, Url};
+use std::convert::TryInto;
 
 /// A HTTP request.
 ///
 /// ```
-/// use oxhttp::model::{Request, Method, Url, HeaderName, Body};
+/// use oxhttp::model::{Request, Method, HeaderName, Body};
 ///
-/// let mut request = Request::new(Method::POST, Url::parse("http://example.com:80/foo")?);
-/// request.headers_mut().append(HeaderName::CONTENT_TYPE, "application/json".parse()?);
-/// let request = request.with_body("{\"foo\": \"bar\"}");
+/// let request = Request::new(Method::POST, "http://example.com:80/foo".parse()?)
+///     .with_header(HeaderName::CONTENT_TYPE, "application/json")?
+///     .with_body("{\"foo\": \"bar\"}");
 ///
 /// assert_eq!(*request.method(), Method::POST);
 /// assert_eq!(request.url().as_str(), "http://example.com/foo");
@@ -46,6 +47,15 @@ impl Request {
 
     pub fn headers_mut(&mut self) -> &mut Headers {
         &mut self.headers
+    }
+
+    pub fn with_header(
+        mut self,
+        name: HeaderName,
+        value: impl TryInto<HeaderValue, Error = InvalidHeader>,
+    ) -> Result<Self, InvalidHeader> {
+        self.headers_mut().append(name, value.try_into()?);
+        Ok(self)
     }
 
     pub fn body(&self) -> &Body {
