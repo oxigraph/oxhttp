@@ -90,11 +90,10 @@ fn accept_request(
             Ok(request) => {
                 // handle close
                 close = request
-                    .headers()
-                    .get(&HeaderName::CONNECTION)
+                    .header(&HeaderName::CONNECTION)
                     .map_or(false, |v| v.eq_ignore_ascii_case(b"close"));
                 // Handles Expect header
-                if let Some(expect) = request.headers().get(&HeaderName::EXPECT).cloned() {
+                if let Some(expect) = request.header(&HeaderName::EXPECT).cloned() {
                     if expect.eq_ignore_ascii_case(b"100-continue") {
                         stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
                         match decode_request_body(request, reader) {

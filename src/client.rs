@@ -22,7 +22,7 @@ use std::time::Duration;
 /// let client = Client::new();
 /// let response = client.request(Request::new(Method::GET, Url::parse("http://example.com")?))?;
 /// assert_eq!(response.status(), Status::OK);
-/// assert_eq!(response.headers().get(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"text/html; charset=UTF-8");
+/// assert_eq!(response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"text/html; charset=UTF-8");
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
 #[allow(missing_copy_implementations)]

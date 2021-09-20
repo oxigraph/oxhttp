@@ -11,6 +11,7 @@ use std::convert::TryInto;
 ///     .with_body("{\"foo\": \"bar\"}");
 ///
 /// assert_eq!(response.status(), Status::OK);
+/// assert_eq!(response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"application/json");
 /// assert_eq!(&response.into_body().to_vec()?, b"{\"foo\": \"bar\"}");
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
@@ -40,6 +41,10 @@ impl Response {
 
     pub fn headers_mut(&mut self) -> &mut Headers {
         &mut self.headers
+    }
+
+    pub fn header(&self, name: &HeaderName) -> Option<&HeaderValue> {
+        self.headers.get(name)
     }
 
     pub fn with_header(

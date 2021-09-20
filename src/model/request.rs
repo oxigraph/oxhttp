@@ -12,6 +12,7 @@ use std::convert::TryInto;
 ///
 /// assert_eq!(*request.method(), Method::POST);
 /// assert_eq!(request.url().as_str(), "http://example.com/foo");
+/// assert_eq!(request.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"application/json");
 /// assert_eq!(&request.into_body().to_vec()?, b"{\"foo\": \"bar\"}");
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
@@ -47,6 +48,10 @@ impl Request {
 
     pub fn headers_mut(&mut self) -> &mut Headers {
         &mut self.headers
+    }
+
+    pub fn header(&self, name: &HeaderName) -> Option<&HeaderValue> {
+        self.headers.get(name)
     }
 
     pub fn with_header(

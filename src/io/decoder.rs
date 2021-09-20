@@ -353,16 +353,14 @@ mod tests {
         )?;
         assert_eq!(
             request
-                .headers()
-                .get(&HeaderName::from_str("foo").unwrap())
+                .header(&HeaderName::from_str("foo").unwrap())
                 .unwrap()
                 .as_ref(),
             b"v1, v2".as_ref()
         );
         assert_eq!(
             request
-                .headers()
-                .get(&HeaderName::from_str("Bar").unwrap())
+                .header(&HeaderName::from_str("Bar").unwrap())
                 .unwrap()
                 .as_ref(),
             b"vbar".as_ref()
@@ -422,8 +420,7 @@ mod tests {
         assert_eq!(response.status(), Status::OK);
         assert_eq!(
             response
-                .headers()
-                .get(&HeaderName::CONTENT_TYPE)
+                .header(&HeaderName::CONTENT_TYPE)
                 .unwrap()
                 .to_str()
                 .unwrap(),
@@ -443,8 +440,7 @@ mod tests {
         assert_eq!(response.status(), Status::OK);
         assert_eq!(
             response
-                .headers()
-                .get(&HeaderName::CONTENT_TYPE)
+                .header(&HeaderName::CONTENT_TYPE)
                 .unwrap()
                 .to_str()
                 .unwrap(),
@@ -464,8 +460,7 @@ mod tests {
         assert_eq!(response.status(), Status::OK);
         assert_eq!(
             response
-                .headers()
-                .get(&HeaderName::CONTENT_TYPE)
+                .header(&HeaderName::CONTENT_TYPE)
                 .unwrap()
                 .to_str()
                 .unwrap(),
