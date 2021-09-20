@@ -138,12 +138,13 @@ mod tests {
 
     #[test]
     fn encode_get_request() -> Result<()> {
-        let request = Request::new(
+        let request = Request::builder(
             Method::GET,
             "http://example.com/foo/bar?query#fragment".parse().unwrap(),
         )
         .with_header(HeaderName::ACCEPT, "application/json")
-        .unwrap();
+        .unwrap()
+        .build();
         let mut buffer = Vec::new();
         encode_request(request, &mut buffer)?;
         assert_eq!(
@@ -155,7 +156,7 @@ mod tests {
 
     #[test]
     fn encode_post_request() -> Result<()> {
-        let request = Request::new(
+        let request = Request::builder(
             Method::POST,
             "http://example.com/foo/bar?query#fragment".parse().unwrap(),
         )
@@ -173,7 +174,7 @@ mod tests {
 
     #[test]
     fn encode_post_request_with_chunked() -> Result<()> {
-        let request = Request::new(
+        let request = Request::builder(
             Method::POST,
             "http://example.com/foo/bar?query#fragment".parse().unwrap(),
         )

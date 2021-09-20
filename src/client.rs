@@ -17,10 +17,10 @@ use std::time::Duration;
 ///
 /// ```
 /// use oxhttp::Client;
-/// use oxhttp::model::{Request, Method, Status, Url, HeaderName};
+/// use oxhttp::model::{Request, Method, Status, HeaderName};
 ///
 /// let client = Client::new();
-/// let response = client.request(Request::new(Method::GET, Url::parse("http://example.com")?))?;
+/// let response = client.request(Request::builder(Method::GET,"http://example.com".parse()?).build())?;
 /// assert_eq!(response.status(), Status::OK);
 /// assert_eq!(response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"text/html; charset=UTF-8");
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())

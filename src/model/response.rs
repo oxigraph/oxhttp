@@ -6,7 +6,7 @@ use std::convert::TryInto;
 /// ```
 /// use oxhttp::model::{HeaderName, Body, Response, Status};
 ///
-/// let response = Response::new(Status::OK)
+/// let response = Response::builder(Status::OK)
 ///     .with_header(HeaderName::CONTENT_TYPE, "application/json")?
 ///     .with_body("{\"foo\": \"bar\"}");
 ///
@@ -23,14 +23,41 @@ pub struct Response {
 }
 
 impl Response {
-    pub fn new(status: Status) -> Self {
-        Self {
+    pub fn builder(status: Status) -> ResponseBuilder {
+        ResponseBuilder {
             status,
             headers: Headers::new(),
-            body: Body::default(),
         }
     }
 
+    pub fn status(&self) -> Status {
+        self.status
+    }
+
+    pub fn headers(&self) -> &Headers {
+        &self.headers
+    }
+
+    pub fn header(&self, name: &HeaderName) -> Option<&HeaderValue> {
+        self.headers.get(name)
+    }
+
+    pub fn body(&self) -> &Body {
+        &self.body
+    }
+
+    pub fn into_body(self) -> Body {
+        self.body
+    }
+}
+
+/// Builder for [`Response`]
+pub struct ResponseBuilder {
+    status: Status,
+    headers: Headers,
+}
+
+impl ResponseBuilder {
     pub fn status(&self) -> Status {
         self.status
     }
@@ -56,16 +83,15 @@ impl Response {
         Ok(self)
     }
 
-    pub fn body(&self) -> &Body {
-        &self.body
+    pub fn with_body(self, body: impl Into<Body>) -> Response {
+        Response {
+            status: self.status,
+            headers: self.headers,
+            body: body.into(),
+        }
     }
 
-    pub fn with_body(mut self, body: impl Into<Body>) -> Self {
-        self.body = body.into();
-        self
-    }
-
-    pub fn into_body(self) -> Body {
-        self.body
+    pub fn build(self) -> Response {
+        self.with_body(Body::default())
     }
 }

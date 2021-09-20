@@ -6,7 +6,7 @@ use std::convert::TryInto;
 /// ```
 /// use oxhttp::model::{Request, Method, HeaderName, Body};
 ///
-/// let request = Request::new(Method::POST, "http://example.com:80/foo".parse()?)
+/// let request = Request::builder(Method::POST, "http://example.com:80/foo".parse()?)
 ///     .with_header(HeaderName::CONTENT_TYPE, "application/json")?
 ///     .with_body("{\"foo\": \"bar\"}");
 ///
@@ -25,15 +25,47 @@ pub struct Request {
 }
 
 impl Request {
-    pub fn new(method: Method, url: Url) -> Self {
-        Self {
+    pub fn builder(method: Method, url: Url) -> RequestBuilder {
+        RequestBuilder {
             method,
             url,
             headers: Headers::new(),
-            body: Body::default(),
         }
     }
 
+    pub fn method(&self) -> &Method {
+        &self.method
+    }
+
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
+
+    pub fn headers(&self) -> &Headers {
+        &self.headers
+    }
+
+    pub fn header(&self, name: &HeaderName) -> Option<&HeaderValue> {
+        self.headers.get(name)
+    }
+
+    pub fn body(&self) -> &Body {
+        &self.body
+    }
+
+    pub fn into_body(self) -> Body {
+        self.body
+    }
+}
+
+/// Builder for [`Request`]
+pub struct RequestBuilder {
+    method: Method,
+    url: Url,
+    headers: Headers,
+}
+
+impl RequestBuilder {
     pub fn method(&self) -> &Method {
         &self.method
     }
@@ -63,16 +95,16 @@ impl Request {
         Ok(self)
     }
 
-    pub fn body(&self) -> &Body {
-        &self.body
+    pub fn with_body(self, body: impl Into<Body>) -> Request {
+        Request {
+            method: self.method,
+            url: self.url,
+            headers: self.headers,
+            body: body.into(),
+        }
     }
 
-    pub fn with_body(mut self, body: impl Into<Body>) -> Self {
-        self.body = body.into();
-        self
-    }
-
-    pub fn into_body(self) -> Body {
-        self.body
+    pub fn build(self) -> Request {
+        self.with_body(Body::default())
     }
 }

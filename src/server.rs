@@ -20,9 +20,9 @@ use std::time::Duration;
 /// // Builds a new server that returns a 404 everywhere except for "/" where it returns the body 'home' "/
 /// let mut server = Server::new(|request| {
 ///     if request.url().path() == "/" {
-///         Response::new(Status::OK).with_body("home")
+///         Response::builder(Status::OK).with_body("home")
 ///     } else {
-///         Response::new(Status::NOT_FOUND)
+///         Response::builder(Status::NOT_FOUND).build()
 ///     }
 /// });
 /// // Raise a timeout error if the client does not respond after 10s.
@@ -127,7 +127,7 @@ fn accept_request(
 }
 
 fn build_error(error: Error, other_kind_status: Status) -> Response {
-    Response::new(match error.kind() {
+    Response::builder(match error.kind() {
         ErrorKind::TimedOut => Status::REQUEST_TIMEOUT,
         ErrorKind::InvalidData => Status::BAD_REQUEST,
         _ => other_kind_status,

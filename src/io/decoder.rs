@@ -1,6 +1,6 @@
 use crate::model::{
-    Body, ChunkedTransferPayload, HeaderName, HeaderValue, Headers, Method, Request, Response,
-    Status, Url,
+    Body, ChunkedTransferPayload, HeaderName, HeaderValue, Headers, Method, Request,
+    RequestBuilder, Response, Status, Url,
 };
 use crate::utils::invalid_data_error;
 use std::cmp::min;
@@ -14,7 +14,7 @@ const DEFAULT_SIZE: usize = 1024;
 pub fn decode_request_headers(
     reader: &mut impl BufRead,
     is_connection_secure: bool,
-) -> Result<Request> {
+) -> Result<RequestBuilder> {
     // Let's read the headers
     let buffer = read_header_bytes(reader)?;
     let mut headers = [httparse::EMPTY_HEADER; DEFAULT_SIZE];
@@ -66,7 +66,7 @@ pub fn decode_request_headers(
             .map_err(|e| invalid_data_error(format!("Invalid request path '{}': {}", path, e)))?
     };
 
-    let mut request = Request::new(method, url);
+    let mut request = Request::builder(method, url);
     for header in parsed_request.headers {
         request.headers_mut().append(
             HeaderName::from_str(header.name).map_err(invalid_data_error)?,
@@ -76,14 +76,12 @@ pub fn decode_request_headers(
     Ok(request)
 }
 
-pub fn decode_request_body(request: Request, reader: impl BufRead + 'static) -> Result<Request> {
-    Ok(
-        if let Some(body) = decode_body(request.headers(), reader)? {
-            request.with_body(body)
-        } else {
-            request
-        },
-    )
+pub fn decode_request_body(
+    request: RequestBuilder,
+    reader: impl BufRead + 'static,
+) -> Result<Request> {
+    let body = decode_body(request.headers(), reader)?;
+    Ok(request.with_body(body))
 }
 
 pub fn decode_response(mut reader: impl BufRead + 'static) -> Result<Response> {
@@ -109,7 +107,7 @@ pub fn decode_response(mut reader: impl BufRead + 'static) -> Result<Response> {
     .map_err(invalid_data_error)?;
 
     // Let's build the response
-    let mut response = Response::new(status);
+    let mut response = Response::builder(status);
     for header in parsed_response.headers {
         response.headers_mut().append(
             HeaderName::from_str(header.name).map_err(invalid_data_error)?,
@@ -117,13 +115,8 @@ pub fn decode_response(mut reader: impl BufRead + 'static) -> Result<Response> {
         );
     }
 
-    Ok(
-        if let Some(body) = decode_body(response.headers(), reader)? {
-            response.with_body(body)
-        } else {
-            response
-        },
-    )
+    let body = decode_body(response.headers(), reader)?;
+    Ok(response.with_body(body))
 }
 
 fn read_header_bytes(mut reader: impl BufRead) -> Result<Vec<u8>> {
@@ -148,7 +141,7 @@ fn read_header_bytes(mut reader: impl BufRead) -> Result<Vec<u8>> {
     Ok(buffer)
 }
 
-fn decode_body(headers: &Headers, reader: impl BufRead + 'static) -> Result<Option<Body>> {
+fn decode_body(headers: &Headers, reader: impl BufRead + 'static) -> Result<Body> {
     let content_length = headers.get(&HeaderName::CONTENT_LENGTH);
     let transfer_encoding = headers.get(&HeaderName::TRANSFER_ENCODING);
     if transfer_encoding.is_some() && content_length.is_some() {
@@ -163,18 +156,18 @@ fn decode_body(headers: &Headers, reader: impl BufRead + 'static) -> Result<Opti
             .map_err(invalid_data_error)?
             .parse::<u64>()
             .map_err(invalid_data_error)?;
-        Some(Body::from_read_and_len(reader, len))
+        Body::from_read_and_len(reader, len)
     } else if let Some(transfer_encoding) = transfer_encoding {
         let transfer_encoding = transfer_encoding.to_str().map_err(invalid_data_error)?;
         if transfer_encoding.eq_ignore_ascii_case("chunked") {
-            Some(Body::from_chunked_transfer_payload(ChunkedDecoder {
+            Body::from_chunked_transfer_payload(ChunkedDecoder {
                 reader,
                 buffer: Vec::with_capacity(DEFAULT_SIZE),
                 is_start: true,
                 chunk_position: 1,
                 chunk_size: 1,
                 trailers: None,
-            }))
+            })
         } else {
             return Err(invalid_data_error(format!(
                 "Transfer-Encoding: {} is not supported",
@@ -182,7 +175,7 @@ fn decode_body(headers: &Headers, reader: impl BufRead + 'static) -> Result<Opti
             )));
         }
     } else {
-        None
+        Body::default()
     })
 }
 
