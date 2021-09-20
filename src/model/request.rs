@@ -45,12 +45,29 @@ impl Request {
         &self.headers
     }
 
+    pub fn headers_mut(&mut self) -> &mut Headers {
+        &mut self.headers
+    }
+
     pub fn header(&self, name: &HeaderName) -> Option<&HeaderValue> {
         self.headers.get(name)
     }
 
+    pub fn append_header(
+        &mut self,
+        name: HeaderName,
+        value: impl TryInto<HeaderValue, Error = InvalidHeader>,
+    ) -> Result<(), InvalidHeader> {
+        self.headers_mut().append(name, value.try_into()?);
+        Ok(())
+    }
+
     pub fn body(&self) -> &Body {
         &self.body
+    }
+
+    pub fn body_mut(&mut self) -> &mut Body {
+        &mut self.body
     }
 
     pub fn into_body(self) -> Body {
