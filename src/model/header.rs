@@ -220,27 +220,27 @@ impl Borrow<str> for HeaderName {
 }
 
 impl FromStr for HeaderName {
-    type Err = InvalidHeaderName;
+    type Err = InvalidHeader;
 
-    fn from_str(name: &str) -> Result<Self, InvalidHeaderName> {
+    fn from_str(name: &str) -> Result<Self, InvalidHeader> {
         name.to_owned().try_into()
     }
 }
 
 impl TryFrom<String> for HeaderName {
-    type Error = InvalidHeaderName;
+    type Error = InvalidHeader;
 
-    fn try_from(mut name: String) -> Result<Self, InvalidHeaderName> {
+    fn try_from(mut name: String) -> Result<Self, InvalidHeader> {
         name.make_ascii_lowercase(); // We normalize to lowercase
         if name.is_empty() {
-            Err(InvalidHeaderName(InvalidHeaderNameAlt::Empty))
+            Err(InvalidHeader(InvalidHeaderAlt::EmptyName))
         } else {
             for c in name.chars() {
                 if !matches!(c, '!' | '#' | '$' | '%' | '&' | '\'' | '*'
        | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~'
         | '0'..='9' | 'a'..='z')
                 {
-                    return Err(InvalidHeaderName(InvalidHeaderNameAlt::InvalidChar {
+                    return Err(InvalidHeader(InvalidHeaderAlt::InvalidNameChar {
                         name: name.to_owned(),
                         invalid_char: c,
                     }));
@@ -295,29 +295,29 @@ impl Borrow<[u8]> for HeaderValue {
 }
 
 impl FromStr for HeaderValue {
-    type Err = InvalidHeaderValue;
+    type Err = InvalidHeader;
 
-    fn from_str(value: &str) -> Result<Self, InvalidHeaderValue> {
+    fn from_str(value: &str) -> Result<Self, InvalidHeader> {
         value.to_owned().try_into()
     }
 }
 
 impl TryFrom<String> for HeaderValue {
-    type Error = InvalidHeaderValue;
+    type Error = InvalidHeader;
 
-    fn try_from(value: String) -> Result<Self, InvalidHeaderValue> {
+    fn try_from(value: String) -> Result<Self, InvalidHeader> {
         value.into_bytes().try_into()
     }
 }
 
 impl TryFrom<Vec<u8>> for HeaderValue {
-    type Error = InvalidHeaderValue;
+    type Error = InvalidHeader;
 
-    fn try_from(value: Vec<u8>) -> Result<Self, InvalidHeaderValue> {
+    fn try_from(value: Vec<u8>) -> Result<Self, InvalidHeader> {
         // no tab or space at the beginning
         if let Some(c) = value.first().cloned() {
             if matches!(c, b'\t' | b' ') {
-                return Err(InvalidHeaderValue(InvalidHeaderValueAlt::InvalidByte {
+                return Err(InvalidHeader(InvalidHeaderAlt::InvalidValueByte {
                     value,
                     invalid_byte: c,
                 }));
@@ -326,7 +326,7 @@ impl TryFrom<Vec<u8>> for HeaderValue {
         // no tab or space at the end
         if let Some(c) = value.last().cloned() {
             if matches!(c, b'\t' | b' ') {
-                return Err(InvalidHeaderValue(InvalidHeaderValueAlt::InvalidByte {
+                return Err(InvalidHeader(InvalidHeaderAlt::InvalidValueByte {
                     value,
                     invalid_byte: c,
                 }));
@@ -335,7 +335,7 @@ impl TryFrom<Vec<u8>> for HeaderValue {
         // no line jump
         for c in value.iter().rev() {
             if matches!(*c, b'\r' | b'\n') {
-                return Err(InvalidHeaderValue(InvalidHeaderValueAlt::InvalidByte {
+                return Err(InvalidHeader(InvalidHeaderAlt::InvalidValueByte {
                     value: value.clone(),
                     invalid_byte: *c,
                 }));
@@ -415,42 +415,25 @@ impl ExactSizeIterator for IntoIter {
 
 /// Error returned by [`HeaderName::try_from`].
 #[derive(Debug, Clone)]
-pub struct InvalidHeaderName(InvalidHeaderNameAlt);
+pub struct InvalidHeader(InvalidHeaderAlt);
 
 #[derive(Debug, Clone)]
-enum InvalidHeaderNameAlt {
-    Empty,
-    InvalidChar { name: String, invalid_char: char },
+enum InvalidHeaderAlt {
+    EmptyName,
+    InvalidNameChar { name: String, invalid_char: char },
+    InvalidValueByte { value: Vec<u8>, invalid_byte: u8 },
 }
 
-impl fmt::Display for InvalidHeaderName {
+impl fmt::Display for InvalidHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            InvalidHeaderNameAlt::Empty => f.write_str("header names should not be empty"),
-            InvalidHeaderNameAlt::InvalidChar { name, invalid_char } => write!(
+            InvalidHeaderAlt::EmptyName => f.write_str("header names should not be empty"),
+            InvalidHeaderAlt::InvalidNameChar { name, invalid_char } => write!(
                 f,
                 "The character '{}' is not valid inside of header name '{}'",
                 invalid_char, name
             ),
-        }
-    }
-}
-
-impl Error for InvalidHeaderName {}
-
-/// Error returned by [`HeaderValue::try_from`].
-#[derive(Debug, Clone)]
-pub struct InvalidHeaderValue(InvalidHeaderValueAlt);
-
-#[derive(Debug, Clone)]
-enum InvalidHeaderValueAlt {
-    InvalidByte { value: Vec<u8>, invalid_byte: u8 },
-}
-
-impl fmt::Display for InvalidHeaderValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.0 {
-            InvalidHeaderValueAlt::InvalidByte {
+            InvalidHeaderAlt::InvalidValueByte {
                 value,
                 invalid_byte,
             } => write!(
@@ -463,4 +446,4 @@ impl fmt::Display for InvalidHeaderValue {
     }
 }
 
-impl Error for InvalidHeaderValue {}
+impl Error for InvalidHeader {}

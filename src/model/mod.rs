@@ -9,7 +9,7 @@ mod response;
 mod status;
 
 pub use body::{Body, ChunkedTransferPayload};
-pub use header::{HeaderName, HeaderValue, Headers, InvalidHeaderName, InvalidHeaderValue};
+pub use header::{HeaderName, HeaderValue, Headers, InvalidHeader};
 pub use method::{InvalidMethod, Method};
 pub use request::Request;
 pub use response::Response;
