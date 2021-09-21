@@ -84,7 +84,7 @@ impl TryFrom<String> for Method {
             for c in name.chars() {
                 if !matches!(c, '!' | '#' | '$' | '%' | '&' | '\'' | '*'
        | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~'
-        | '0'..='9' | 'a'..='z')
+        | '0'..='9' | 'a'..='z' | 'A'..='Z')
                 {
                     return Err(InvalidMethod(InvalidMethodAlt::InvalidChar {
                         name: name.to_owned(),
