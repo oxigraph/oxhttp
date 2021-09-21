@@ -1,6 +1,7 @@
 use crate::io::encode_response;
 use crate::io::{decode_request_body, decode_request_headers};
-use crate::model::{HeaderName, Request, Response, Status};
+use crate::model::{HeaderName, HeaderValue, InvalidHeader, Request, Response, Status};
+use std::convert::TryFrom;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
@@ -35,6 +36,7 @@ use std::time::Duration;
 pub struct Server {
     on_request: Arc<dyn Fn(Request) -> Response + Send + Sync + 'static>,
     timeout: Option<Duration>,
+    server: Option<HeaderValue>,
 }
 
 impl Server {
@@ -43,7 +45,14 @@ impl Server {
         Self {
             on_request: Arc::new(on_request),
             timeout: None,
+            server: None,
         }
+    }
+
+    /// Sets the default value for the [`Server`](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#field.server) header.
+    pub fn set_server(&mut self, server: String) -> std::result::Result<(), InvalidHeader> {
+        self.server = Some(HeaderValue::try_from(server)?);
+        Ok(())
     }
 
     /// Sets the global timout value (applies to both read and write).
@@ -61,8 +70,9 @@ impl Server {
                 Ok(stream) => {
                     let on_request = self.on_request.clone();
                     let timeout = self.timeout;
+                    let server = self.server.clone();
                     spawn(move || {
-                        if let Err(error) = accept_request(stream, on_request, timeout) {
+                        if let Err(error) = accept_request(stream, on_request, timeout, server) {
                             eprint!("TCP error when writing response: {}", error);
                         }
                     });
@@ -80,13 +90,14 @@ fn accept_request(
     mut stream: TcpStream,
     on_request: Arc<dyn Fn(Request) -> Response>,
     timeout: Option<Duration>,
+    server: Option<HeaderValue>,
 ) -> Result<()> {
     stream.set_read_timeout(timeout)?;
     stream.set_write_timeout(timeout)?;
     let mut close = false;
     while !close {
         let mut reader = BufReader::new(stream.try_clone()?);
-        let response = match decode_request_headers(&mut reader, false) {
+        let mut response = match decode_request_headers(&mut reader, false) {
             Ok(request) => {
                 // handle close
                 close = request
@@ -121,6 +132,10 @@ fn accept_request(
             }
             Err(error) => build_error(error, Status::BAD_REQUEST),
         };
+
+        // Additional headers
+        set_header_fallback(&mut response, HeaderName::SERVER, &server);
+
         encode_response(response, BufWriter::new(&mut stream))?;
     }
     Ok(())
@@ -133,4 +148,18 @@ fn build_error(error: Error, other_kind_status: Status) -> Response {
         _ => other_kind_status,
     })
     .with_body(error.to_string())
+}
+
+fn set_header_fallback(
+    response: &mut Response,
+    header_name: HeaderName,
+    header_value: &Option<HeaderValue>,
+) {
+    if let Some(header_value) = header_value {
+        if !response.headers().contains(&header_name) {
+            response
+                .headers_mut()
+                .set(header_name, header_value.clone())
+        }
+    }
 }

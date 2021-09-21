@@ -37,9 +37,6 @@ pub fn encode_request(request: Request, mut writer: impl Write) -> Result<()> {
         write!(writer, "host: {}\r\n", host)?;
     }
 
-    // connection
-    write!(writer, "connection: close\r\n")?;
-
     // headers
     for (name, value) in request.headers() {
         if !is_forbidden_name(name) {
@@ -149,7 +146,7 @@ mod tests {
         encode_request(request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
-            "GET /foo/bar?query HTTP/1.1\r\nhost: example.com\r\nconnection: close\r\naccept: application/json\r\n\r\n"
+            "GET /foo/bar?query HTTP/1.1\r\nhost: example.com\r\naccept: application/json\r\n\r\n"
         );
         Ok(())
     }
@@ -167,7 +164,7 @@ mod tests {
         encode_request(request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
-            "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\nconnection: close\r\naccept: application/json\r\ncontent-length: 8\r\n\r\ntestbody"
+            "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\naccept: application/json\r\ncontent-length: 8\r\n\r\ntestbody"
         );
         Ok(())
     }
@@ -183,7 +180,7 @@ mod tests {
         encode_request(request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
-            "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\nconnection: close\r\ntransfer-encoding: chunked\r\n\r\n8\r\ntestbody\r\n0\r\n\r\n\r\n"
+            "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\ntransfer-encoding: chunked\r\n\r\n8\r\ntestbody\r\n0\r\n\r\n\r\n"
         );
         Ok(())
     }

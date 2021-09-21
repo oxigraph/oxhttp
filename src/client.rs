@@ -1,10 +1,11 @@
 //! Simple HTTP client
 
 use crate::io::{decode_response, encode_request};
-use crate::model::{Request, Response};
+use crate::model::{HeaderName, HeaderValue, InvalidHeader, Request, Response};
 use crate::utils::invalid_input_error;
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
+use std::convert::TryFrom;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
@@ -29,6 +30,7 @@ use std::time::Duration;
 #[derive(Default)]
 pub struct Client {
     timeout: Option<Duration>,
+    user_agent: Option<HeaderValue>,
 }
 
 impl Client {
@@ -43,7 +45,19 @@ impl Client {
         self.timeout = timeout;
     }
 
-    pub fn request(&self, request: Request) -> Result<Response> {
+    /// Sets the default value for the [`User-Agent`](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#field.user-agent) header.
+    pub fn set_user_agent(&mut self, user_agent: String) -> std::result::Result<(), InvalidHeader> {
+        self.user_agent = Some(HeaderValue::try_from(user_agent)?);
+        Ok(())
+    }
+
+    pub fn request(&self, mut request: Request) -> Result<Response> {
+        // Additional headers
+        set_header_fallback(&mut request, HeaderName::USER_AGENT, &self.user_agent);
+        request
+            .headers_mut()
+            .set(HeaderName::CONNECTION, HeaderValue::new_unchecked("close"));
+
         let scheme = request.url().scheme();
         let port = if let Some(port) = request.url().port() {
             port
@@ -129,3 +143,15 @@ const BAD_PORTS: [u16; 80] = [
     995, 1719, 1720, 1723, 2049, 3659, 4045, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669,
     6697, 10080,
 ];
+
+fn set_header_fallback(
+    request: &mut Request,
+    header_name: HeaderName,
+    header_value: &Option<HeaderValue>,
+) {
+    if let Some(header_value) = header_value {
+        if !request.headers().contains(&header_name) {
+            request.headers_mut().set(header_name, header_value.clone())
+        }
+    }
+}
