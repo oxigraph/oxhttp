@@ -113,6 +113,10 @@ impl<'a> IntoIterator for &'a Headers {
 pub struct HeaderName(Cow<'static, str>);
 
 impl HeaderName {
+    pub(crate) fn new_unchecked(name: impl Into<Cow<'static, str>>) -> Self {
+        Self(name.into())
+    }
+
     /// [`Accept`](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#field.accept)
     pub const ACCEPT: Self = Self(Cow::Borrowed("accept"));
     /// [`Accept-Encoding`](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#field.accept-encoding)
@@ -278,6 +282,10 @@ impl fmt::Display for HeaderName {
 pub struct HeaderValue(Vec<u8>);
 
 impl HeaderValue {
+    pub(crate) fn new_unchecked(value: impl Into<Vec<u8>>) -> Self {
+        Self(value.into())
+    }
+
     pub fn to_str(&self) -> Result<&str, Utf8Error> {
         str::from_utf8(self)
     }

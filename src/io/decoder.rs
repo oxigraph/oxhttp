@@ -69,8 +69,8 @@ pub fn decode_request_headers(
     let mut request = Request::builder(method, url);
     for header in parsed_request.headers {
         request.headers_mut().append(
-            HeaderName::from_str(header.name).map_err(invalid_data_error)?,
-            HeaderValue::try_from(header.value.to_vec()).map_err(invalid_data_error)?,
+            HeaderName::new_unchecked(header.name.to_ascii_lowercase()),
+            HeaderValue::new_unchecked(header.value),
         );
     }
     Ok(request)
@@ -110,8 +110,8 @@ pub fn decode_response(mut reader: impl BufRead + 'static) -> Result<Response> {
     let mut response = Response::builder(status);
     for header in parsed_response.headers {
         response.headers_mut().append(
-            HeaderName::from_str(header.name).map_err(invalid_data_error)?,
-            HeaderValue::try_from(header.value.to_vec()).map_err(invalid_data_error)?,
+            HeaderName::new_unchecked(header.name.to_ascii_lowercase()),
+            HeaderValue::new_unchecked(header.value),
         );
     }
 
@@ -264,9 +264,8 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
                     let mut trailers = Headers::new();
                     for trailer in parsed_trailers {
                         trailers.append(
-                            HeaderName::from_str(trailer.name).map_err(invalid_data_error)?,
-                            HeaderValue::try_from(trailer.value.to_vec())
-                                .map_err(invalid_data_error)?,
+                            HeaderName::new_unchecked(trailer.name.to_ascii_lowercase()),
+                            HeaderValue::new_unchecked(trailer.value),
                         );
                     }
                     self.trailers = Some(trailers);
@@ -371,6 +370,35 @@ mod tests {
         request.into_body().read_to_end(&mut buffer)?;
         assert_eq!(buffer, b"foobarbar");
         Ok(())
+    }
+
+    #[test]
+    fn decode_request_empty_header_name() {
+        assert!(decode_request_headers(
+            &mut Cursor::new("GET / HTTP/1.1\nHost: www.example.org:8001\n: foo"),
+            false
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn decode_request_invalid_header_name_char() {
+        assert!(decode_request_headers(
+            &mut Cursor::new("GET / HTTP/1.1\nHost: www.example.org:8001\nConté: foo"),
+            false
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn decode_request_invalid_header_value_char() {
+        assert!(decode_request_headers(
+            &mut Cursor::new(
+                "GET / HTTP/1.1\nHost: www.example.org:8001\nCont\t: foo\rbar\r\nTest: test"
+            ),
+            false
+        )
+        .is_err());
     }
 
     #[test]
@@ -482,6 +510,30 @@ mod tests {
         let mut buf = String::new();
         assert!(response.into_body().read_to_string(&mut buf).is_err());
         Ok(())
+    }
+
+    #[test]
+    fn decode_response_empty_header_name() {
+        assert!(decode_response(Cursor::new(
+            "HTTP/1.1 200 OK\nHost: www.example.org:8001\n: foo"
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn decode_response_invalid_header_name_char() {
+        assert!(decode_response(Cursor::new(
+            "HTTP/1.1 200 OK\nHost: www.example.org:8001\nConté: foo"
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn decode_response_invalid_header_value_char() {
+        assert!(decode_response(Cursor::new(
+            "HTTP/1.1 200 OK\nHost: www.example.org:8001\nCont\t: foo\rbar\r\nTest: test"
+        ))
+        .is_err());
     }
 
     #[test]
