@@ -36,35 +36,44 @@ pub fn decode_request_headers(
     )
     .map_err(invalid_data_error)?;
 
-    let host = parsed_request
-        .headers
-        .iter()
-        .find_map(|header| {
-            if header.name.eq_ignore_ascii_case("host") {
-                Some(header.value)
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| invalid_data_error("No host header in HTTP request"))?;
-    let host = str::from_utf8(host)
-        .map_err(|e| invalid_data_error(format!("Invalid host header value: {}", e)))?;
-    let base_url = Url::parse(&if is_connection_secure {
-        format!("https://{}", host)
-    } else {
-        format!("http://{}", host)
-    })
-    .map_err(|e| invalid_data_error(format!("Invalid host header value '{}': {}", host, e)))?;
     let path = parsed_request
         .path
         .ok_or_else(|| invalid_data_error("No path in the HTTP request"))?;
-    let url = if path == "*" {
-        base_url
+    let url = if let Some(host) = parsed_request.headers.iter().find_map(|header| {
+        if header.name.eq_ignore_ascii_case("host") {
+            Some(header.value)
+        } else {
+            None
+        }
+    }) {
+        let host = str::from_utf8(host)
+            .map_err(|e| invalid_data_error(format!("Invalid host header value: {}", e)))?;
+        let base_url = Url::parse(&if is_connection_secure {
+            format!("https://{}", host)
+        } else {
+            format!("http://{}", host)
+        })
+        .map_err(|e| invalid_data_error(format!("Invalid host header value '{}': {}", host, e)))?;
+        if path == "*" {
+            base_url
+        } else {
+            base_url.join(path).map_err(|e| {
+                invalid_data_error(format!("Invalid request path '{}': {}", path, e))
+            })?
+        }
     } else {
-        base_url
-            .join(path)
-            .map_err(|e| invalid_data_error(format!("Invalid request path '{}': {}", path, e)))?
+        Url::parse(path).map_err(|e| {
+            invalid_data_error(format!(
+                "No host header in HTTP request and not absolute path '{}': {}",
+                path, e
+            ))
+        })?
     };
+
+    // We validate that the URL is valid
+    if !url.has_authority() {
+        return Err(invalid_data_error("No host header in HTTP request"));
+    }
 
     let mut request = Request::builder(method, url);
     for header in parsed_request.headers {
@@ -72,6 +81,14 @@ pub fn decode_request_headers(
             HeaderName::new_unchecked(header.name.to_ascii_lowercase()),
             HeaderValue::new_unchecked(header.value),
         );
+    }
+    if parsed_request.version == Some(0) {
+        // Hack to fallback to default HTTP 1.0 behavior of closing connections
+        if !request.headers().contains(&HeaderName::CONNECTION) {
+            request
+                .headers_mut()
+                .append(HeaderName::CONNECTION, HeaderValue::new_unchecked("close"))
+        }
     }
     Ok(request)
 }
@@ -290,6 +307,7 @@ impl<R: BufRead> ChunkedTransferPayload for ChunkedDecoder<R> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+    use std::ops::Deref;
 
     #[test]
     fn decode_request_target_origin_form() -> Result<()> {
@@ -317,9 +335,22 @@ mod tests {
     }
 
     #[test]
-    fn decode_request_target_absolute_form_without_host() {
-        assert!(decode_request_headers(
+    fn decode_request_target_absolute_form_without_host() -> Result<()> {
+        let request = decode_request_headers(
             &mut Cursor::new("GET http://www.example.org/pub/WWW/TheProject.html HTTP/1.1\n\n"),
+            false,
+        )?;
+        assert_eq!(
+            request.url().as_str(),
+            "http://www.example.org/pub/WWW/TheProject.html"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn decode_request_target_relative_form_without_host() {
+        assert!(decode_request_headers(
+            &mut Cursor::new("GET /pub/WWW/TheProject.html HTTP/1.1\n\n"),
             false,
         )
         .is_err());
@@ -421,6 +452,19 @@ mod tests {
                 .into_body()
                 .read_to_end(&mut buffer)
                 .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn decode_request_http_1_0() -> Result<()> {
+        let mut read =
+            Cursor::new("POST http://example.com/foo HTTP/1.0\r\ncontent-length: 12\r\n\r\nfoobar");
+        let request = decode_request_body(decode_request_headers(&mut read, false)?, read)?;
+        assert_eq!(request.url().as_str(), "http://example.com/foo");
+        assert_eq!(
+            request.header(&HeaderName::CONNECTION).unwrap().deref(),
+            b"close"
         );
         Ok(())
     }
