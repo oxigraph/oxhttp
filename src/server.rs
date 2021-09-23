@@ -1,8 +1,10 @@
 use crate::io::encode_response;
 use crate::io::{decode_request_body, decode_request_headers};
-use crate::model::{HeaderName, HeaderValue, InvalidHeader, Request, Response, Status};
+use crate::model::{
+    HeaderName, HeaderValue, InvalidHeader, Request, RequestBuilder, Response, Status,
+};
 use std::convert::TryFrom;
-use std::io::{BufReader, BufWriter, Error, ErrorKind, Result, Write};
+use std::io::{copy, sink, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::thread::spawn;
@@ -34,14 +36,14 @@ use std::time::Duration;
 /// ```
 #[allow(missing_copy_implementations)]
 pub struct Server {
-    on_request: Arc<dyn Fn(Request) -> Response + Send + Sync + 'static>,
+    on_request: Arc<dyn Fn(&mut Request) -> Response + Send + Sync + 'static>,
     timeout: Option<Duration>,
     server: Option<HeaderValue>,
 }
 
 impl Server {
     /// Builds the server using the given `on_request` method that builds a `Response` from a given `Request`.
-    pub fn new(on_request: impl Fn(Request) -> Response + Send + Sync + 'static) -> Self {
+    pub fn new(on_request: impl Fn(&mut Request) -> Response + Send + Sync + 'static) -> Self {
         Self {
             on_request: Arc::new(on_request),
             timeout: None,
@@ -88,7 +90,7 @@ impl Server {
 
 fn accept_request(
     mut stream: TcpStream,
-    on_request: Arc<dyn Fn(Request) -> Response>,
+    on_request: Arc<dyn Fn(&mut Request) -> Response>,
     timeout: Option<Duration>,
     server: Option<HeaderValue>,
 ) -> Result<()> {
@@ -107,10 +109,10 @@ fn accept_request(
                 if let Some(expect) = request.header(&HeaderName::EXPECT).cloned() {
                     if expect.eq_ignore_ascii_case(b"100-continue") {
                         stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
-                        match decode_request_body(request, reader) {
-                            Ok(request) => on_request(request),
-                            Err(error) => build_error(error, Status::BAD_REQUEST),
-                        }
+                        let (response, should_close) =
+                            read_body_and_build_response(request, reader, on_request.as_ref());
+                        close |= should_close;
+                        response
                     } else {
                         build_error(
                             Error::new(
@@ -124,13 +126,16 @@ fn accept_request(
                         )
                     }
                 } else {
-                    match decode_request_body(request, reader) {
-                        Ok(request) => on_request(request),
-                        Err(error) => build_error(error, Status::BAD_REQUEST),
-                    }
+                    let (response, should_close) =
+                        read_body_and_build_response(request, reader, on_request.as_ref());
+                    close |= should_close;
+                    response
                 }
             }
-            Err(error) => build_error(error, Status::BAD_REQUEST),
+            Err(error) => {
+                close = true;
+                build_error(error, Status::BAD_REQUEST)
+            }
         };
 
         // Additional headers
@@ -139,6 +144,25 @@ fn accept_request(
         encode_response(response, BufWriter::new(&mut stream))?;
     }
     Ok(())
+}
+
+fn read_body_and_build_response(
+    request: RequestBuilder,
+    reader: BufReader<TcpStream>,
+    on_request: &dyn Fn(&mut Request) -> Response,
+) -> (Response, bool) {
+    match decode_request_body(request, reader) {
+        Ok(mut request) => {
+            let response = on_request(&mut request);
+            // We make sure to finish reading the body
+            if let Err(error) = copy(request.body_mut(), &mut sink()) {
+                (build_error(error, Status::BAD_REQUEST), true) //TODO: ignore?
+            } else {
+                (response, false)
+            }
+        }
+        Err(error) => (build_error(error, Status::BAD_REQUEST), true),
+    }
 }
 
 fn build_error(error: Error, other_kind_status: Status) -> Response {
