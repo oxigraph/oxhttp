@@ -96,47 +96,42 @@ fn accept_request(
 ) -> Result<()> {
     stream.set_read_timeout(timeout)?;
     stream.set_write_timeout(timeout)?;
-    let mut close = false;
-    while !close {
+    let mut connection_state = ConnectionState::KeepAlive;
+    while connection_state == ConnectionState::KeepAlive {
         let mut reader = BufReader::new(stream.try_clone()?);
-        let mut response = match decode_request_headers(&mut reader, false) {
+        let (mut response, new_connection_state) = match decode_request_headers(&mut reader, false)
+        {
             Ok(request) => {
-                // handle close
-                close = request
-                    .header(&HeaderName::CONNECTION)
-                    .map_or(false, |v| v.eq_ignore_ascii_case(b"close"));
                 // Handles Expect header
                 if let Some(expect) = request.header(&HeaderName::EXPECT).cloned() {
                     if expect.eq_ignore_ascii_case(b"100-continue") {
                         stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
-                        let (response, should_close) =
-                            read_body_and_build_response(request, reader, on_request.as_ref());
-                        close |= should_close;
-                        response
+                        read_body_and_build_response(request, reader, on_request.as_ref())
                     } else {
-                        build_error(
-                            Error::new(
-                                ErrorKind::Other,
-                                format!(
-                                    "Expect header value '{}' is not supported",
-                                    String::from_utf8_lossy(expect.as_ref())
+                        (
+                            build_error(
+                                Error::new(
+                                    ErrorKind::Other,
+                                    format!(
+                                        "Expect header value '{}' is not supported",
+                                        String::from_utf8_lossy(expect.as_ref())
+                                    ),
                                 ),
+                                Status::EXPECTATION_FAILED,
                             ),
-                            Status::EXPECTATION_FAILED,
+                            ConnectionState::Close,
                         )
                     }
                 } else {
-                    let (response, should_close) =
-                        read_body_and_build_response(request, reader, on_request.as_ref());
-                    close |= should_close;
-                    response
+                    read_body_and_build_response(request, reader, on_request.as_ref())
                 }
             }
-            Err(error) => {
-                close = true;
-                build_error(error, Status::BAD_REQUEST)
-            }
+            Err(error) => (
+                build_error(error, Status::BAD_REQUEST),
+                ConnectionState::Close,
+            ),
         };
+        connection_state = new_connection_state;
 
         // Additional headers
         set_header_fallback(&mut response, HeaderName::SERVER, &server);
@@ -146,22 +141,41 @@ fn accept_request(
     Ok(())
 }
 
+#[derive(Eq, PartialEq, Debug, Copy, Clone)]
+enum ConnectionState {
+    Close,
+    KeepAlive,
+}
+
 fn read_body_and_build_response(
     request: RequestBuilder,
     reader: BufReader<TcpStream>,
     on_request: &dyn Fn(&mut Request) -> Response,
-) -> (Response, bool) {
+) -> (Response, ConnectionState) {
     match decode_request_body(request, reader) {
         Ok(mut request) => {
             let response = on_request(&mut request);
             // We make sure to finish reading the body
             if let Err(error) = copy(request.body_mut(), &mut sink()) {
-                (build_error(error, Status::BAD_REQUEST), true) //TODO: ignore?
+                (
+                    build_error(error, Status::BAD_REQUEST),
+                    ConnectionState::Close,
+                ) //TODO: ignore?
             } else {
-                (response, false)
+                let connection_state = request
+                    .header(&HeaderName::CONNECTION)
+                    .and_then(|v| {
+                        v.eq_ignore_ascii_case(b"close")
+                            .then(|| ConnectionState::Close)
+                    })
+                    .unwrap_or(ConnectionState::KeepAlive);
+                (response, connection_state)
             }
         }
-        Err(error) => (build_error(error, Status::BAD_REQUEST), true),
+        Err(error) => (
+            build_error(error, Status::BAD_REQUEST),
+            ConnectionState::Close,
+        ),
     }
 }
 
