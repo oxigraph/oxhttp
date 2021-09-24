@@ -365,7 +365,7 @@ impl TryFrom<Vec<u8>> for HeaderValue {
             }
         }
         // no line jump
-        for c in value.iter().rev() {
+        for c in &value {
             if matches!(*c, b'\r' | b'\n') {
                 return Err(InvalidHeader(InvalidHeaderAlt::InvalidValueByte {
                     value: value.clone(),
