@@ -74,6 +74,15 @@ pub fn decode_request_headers(
     if !url.has_authority() {
         return Err(invalid_data_error("No host header in HTTP request"));
     }
+    if is_connection_secure {
+        if url.scheme() != "https" {
+            return Err(invalid_data_error("The HTTPS URL scheme should be 'https"));
+        }
+    } else {
+        if url.scheme() != "http" {
+            return Err(invalid_data_error("The HTTP URL scheme should be 'http"));
+        }
+    }
 
     let mut request = Request::builder(method, url);
     for header in parsed_request.headers {
@@ -211,6 +220,11 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
             // In case we still have data
             if self.chunk_position < self.chunk_size {
                 let inner_buf = self.reader.fill_buf()?;
+                if inner_buf.is_empty() {
+                    return Err(invalid_data_error(
+                        "Unexpected stream end in the middle of a chunked content",
+                    ));
+                }
                 let size = min(
                     min(buf.len(), inner_buf.len()),
                     self.chunk_size - self.chunk_position,
@@ -218,7 +232,7 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
                 buf[..size].copy_from_slice(&inner_buf[..size]);
                 self.reader.consume(size);
                 self.chunk_position += size;
-                return Ok(size); // Won't be 0 because there is still some inner buffer
+                return Ok(size);
             }
 
             if self.is_start {
@@ -357,6 +371,29 @@ mod tests {
     }
 
     #[test]
+    fn decode_request_target_absolute_form_wrong_scheme() {
+        assert!(decode_request_headers(
+            &mut Cursor::new("GET https://www.example.org/pub/WWW/TheProject.html HTTP/1.1\n\n"),
+            false,
+        )
+        .is_err());
+        assert!(decode_request_headers(
+            &mut Cursor::new("GET http://www.example.org/pub/WWW/TheProject.html HTTP/1.1\n\n"),
+            true,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn decode_invalid_request_target_relative_form_with_host() {
+        assert!(decode_request_headers(
+            &mut Cursor::new("GET /foo<bar HTTP/1.1\nhost: www.example.com\n\n"),
+            false,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn decode_request_target_asterisk_form() -> Result<()> {
         let request = decode_request_headers(
             &mut Cursor::new("OPTIONS * HTTP/1.1\nHost: www.example.org:8001\n\n"),
@@ -372,8 +409,9 @@ mod tests {
             &mut Cursor::new(
                 "GET / HTTP/1.1\nHost: www.example.org:8001\nFoo: v1\nbar: vbar\nfoo: v2\n\n",
             ),
-            false,
+            true,
         )?;
+        assert_eq!(request.url().as_str(), "https://www.example.org:8001/");
         assert_eq!(
             request
                 .header(&HeaderName::from_str("foo").unwrap())
@@ -470,6 +508,13 @@ mod tests {
     }
 
     #[test]
+    fn decode_request_unsupported_transfer_encoding() -> Result<()> {
+        let mut read = Cursor::new("POST / HTTP/1.1\r\nhost: example.com\r\ncontent-length: 12\r\ntransfer-encoding: foo\r\n\r\nfoobar");
+        assert!(decode_request_body(decode_request_headers(&mut read, false)?, read).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn decode_response_without_payload() -> Result<()> {
         let response = decode_response(Cursor::new("HTTP/1.1 404 Not Found\r\n\r\n"))?;
         assert_eq!(response.status(), Status::NOT_FOUND);
@@ -480,7 +525,7 @@ mod tests {
     #[test]
     fn decode_response_with_fixed_payload() -> Result<()> {
         let response = decode_response(Cursor::new(
-            "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length:8\r\n\r\ntestbody",
+            "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length:12\r\n\r\ntestbodybody",
         ))?;
         assert_eq!(response.status(), Status::OK);
         assert_eq!(
@@ -493,7 +538,7 @@ mod tests {
         );
         let mut buf = String::new();
         response.into_body().read_to_string(&mut buf)?;
-        assert_eq!(buf, "testbody");
+        assert_eq!(buf, "testbodybody");
         Ok(())
     }
 
@@ -547,9 +592,29 @@ mod tests {
     }
 
     #[test]
+    fn decode_response_with_invalid_chunk_header() -> Result<()> {
+        let response = decode_response(Cursor::new(
+            "HTTP/1.1 200 OK\r\ntransfer-encoding:chunked\r\n\r\nh\r\nWiki\r\n0\r\n\r\n",
+        ))?;
+        let mut buf = String::new();
+        assert!(response.into_body().read_to_string(&mut buf).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn decode_response_with_invalid_trailer() -> Result<()> {
         let response = decode_response(Cursor::new(
-            "HTTP/1.1 200 OK\r\ntransfer-encoding:chunked\r\n\r\n4\r\nWiki\r\n0\r\ntest\n: foo\r\n\r\n",
+            "HTTP/1.1 200 OK\r\ntransfer-encoding:chunked\r\n\r\nf\r\nWiki\r\n0\r\ntest\n: foo\r\n\r\n",
+        ))?;
+        let mut buf = String::new();
+        assert!(response.into_body().read_to_string(&mut buf).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn decode_response_with_not_ended_trailer() -> Result<()> {
+        let response = decode_response(Cursor::new(
+            "HTTP/1.1 200 OK\r\ntransfer-encoding:chunked\r\n\r\nf\r\nWiki",
         ))?;
         let mut buf = String::new();
         assert!(response.into_body().read_to_string(&mut buf).is_err());
@@ -600,5 +665,10 @@ mod tests {
         .read_to_end(&mut buffer)
         .is_err());
         Ok(())
+    }
+
+    #[test]
+    fn decode_response_content_length_and_transfer_encoding() {
+        assert!(decode_response( Cursor::new("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ntransfer-encoding:chunked\r\ncontent-length: 222\r\n\r\n")).is_err());
     }
 }

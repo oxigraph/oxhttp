@@ -1,7 +1,7 @@
 //! Simple HTTP client
 
 use crate::io::{decode_response, encode_request};
-use crate::model::{HeaderName, HeaderValue, InvalidHeader, Request, Response};
+use crate::model::{HeaderName, HeaderValue, InvalidHeader, Request, Response, Url};
 use crate::utils::invalid_input_error;
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
@@ -39,15 +39,16 @@ impl Client {
     }
 
     /// Sets the global timout value (applies to both read, write and connection).
-    ///
-    /// Set to `None` to wait indefinitely.
-    pub fn set_global_timeout(&mut self, timeout: Option<Duration>) {
-        self.timeout = timeout;
+    pub fn set_global_timeout(&mut self, timeout: Duration) {
+        self.timeout = Some(timeout);
     }
 
     /// Sets the default value for the [`User-Agent`](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#field.user-agent) header.
-    pub fn set_user_agent(&mut self, user_agent: String) -> std::result::Result<(), InvalidHeader> {
-        self.user_agent = Some(HeaderValue::try_from(user_agent)?);
+    pub fn set_user_agent(
+        &mut self,
+        user_agent: impl Into<String>,
+    ) -> std::result::Result<(), InvalidHeader> {
+        self.user_agent = Some(HeaderValue::try_from(user_agent.into())?);
         Ok(())
     }
 
@@ -58,35 +59,14 @@ impl Client {
             .headers_mut()
             .set(HeaderName::CONNECTION, HeaderValue::new_unchecked("close"));
 
-        let scheme = request.url().scheme();
-        let port = if let Some(port) = request.url().port() {
-            port
-        } else {
-            match scheme {
-                "http" => 80,
-                "https" => 443,
-                _ => {
-                    return Err(invalid_input_error(format!(
-                        "No port provided for scheme '{}'",
-                        scheme
-                    )))
-                }
-            }
-        };
-        if BAD_PORTS.binary_search(&port).is_ok() {
-            return Err(invalid_input_error(format!(
-                "The port {} is not allowed for HTTP(S) because it is dedicated to an other use",
-                port
-            )));
-        }
-
         let host = request
             .url()
             .host_str()
             .ok_or_else(|| invalid_input_error("No host provided"))?;
 
-        match scheme {
+        match request.url().scheme() {
             "http" => {
+                let port = get_and_validate_port(request.url(), 80)?;
                 let mut stream = self.connect((host, port))?;
                 encode_request(request, BufWriter::new(&mut stream))?;
                 decode_response(BufReader::new(stream))
@@ -94,6 +74,7 @@ impl Client {
             "https" => {
                 #[cfg(feature = "native-tls")]
                 {
+                    let port = get_and_validate_port(request.url(), 443)?;
                     let connector =
                         TlsConnector::new().map_err(|e| Error::new(ErrorKind::Other, e))?;
                     let stream = self.connect((host, port))?;
@@ -108,7 +89,7 @@ impl Client {
             }
             _ => Err(invalid_input_error(format!(
                 "Not supported URL scheme: {}",
-                scheme
+                request.url().scheme()
             ))),
         }
     }
@@ -144,6 +125,19 @@ const BAD_PORTS: [u16; 80] = [
     6697, 10080,
 ];
 
+fn get_and_validate_port(url: &Url, default_port: u16) -> Result<u16> {
+    url.port().map_or(Ok(default_port), |port| {
+        if BAD_PORTS.binary_search(&port).is_ok() {
+            Err(invalid_input_error(format!(
+                "The port {} is not allowed for HTTP(S) because it is dedicated to an other use",
+                port
+            )))
+        } else {
+            Ok(port)
+        }
+    })
+}
+
 fn set_header_fallback(
     request: &mut Request,
     header_name: HeaderName,
@@ -153,5 +147,117 @@ fn set_header_fallback(
         if !request.headers().contains(&header_name) {
             request.headers_mut().set(header_name, header_value.clone())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Method, Status};
+
+    #[test]
+    fn test_http_get_ok() -> Result<()> {
+        let client = Client::new();
+        let response = client.request(
+            Request::builder(Method::GET, "http://example.com".parse().unwrap()).build(),
+        )?;
+        assert_eq!(response.status(), Status::OK);
+        assert_eq!(
+            response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
+            b"text/html; charset=UTF-8"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_get_ok_with_user_agent_and_timeout() -> Result<()> {
+        let mut client = Client::new();
+        client.set_user_agent("OxHTTP/1.0").unwrap();
+        client.set_global_timeout(Duration::from_secs(5));
+        let response = client.request(
+            Request::builder(Method::GET, "http://example.com".parse().unwrap()).build(),
+        )?;
+        assert_eq!(response.status(), Status::OK);
+        assert_eq!(
+            response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
+            b"text/html; charset=UTF-8"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_get_ok_explicit_port() -> Result<()> {
+        let client = Client::new();
+        let response = client.request(
+            Request::builder(Method::GET, "http://example.com:80".parse().unwrap()).build(),
+        )?;
+        assert_eq!(response.status(), Status::OK);
+        assert_eq!(
+            response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
+            b"text/html; charset=UTF-8"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_wrong_port() {
+        let client = Client::new();
+        assert!(client
+            .request(
+                Request::builder(Method::GET, "http://example.com:22".parse().unwrap()).build(),
+            )
+            .is_err());
+    }
+
+    #[cfg(feature = "native-tls")]
+    #[test]
+    fn test_https_get_ok() -> Result<()> {
+        let client = Client::new();
+        let response = client.request(
+            Request::builder(Method::GET, "https://example.com".parse().unwrap()).build(),
+        )?;
+        assert_eq!(response.status(), Status::OK);
+        assert_eq!(
+            response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
+            b"text/html; charset=UTF-8"
+        );
+        Ok(())
+    }
+
+    #[cfg(not(feature = "native-tls"))]
+    #[test]
+    fn test_https_get_ok() {
+        let client = Client::new();
+        assert!(client
+            .request(Request::builder(Method::GET, "https://example.com".parse().unwrap()).build())
+            .is_err());
+    }
+
+    #[test]
+    fn test_http_get_not_found() -> Result<()> {
+        let client = Client::new();
+        let response = client.request(
+            Request::builder(
+                Method::GET,
+                "http://example.com/not_existing".parse().unwrap(),
+            )
+            .build(),
+        )?;
+        assert_eq!(response.status(), Status::NOT_FOUND);
+        Ok(())
+    }
+
+    #[test]
+    fn test_file_get_error() {
+        let client = Client::new();
+        assert!(client
+            .request(
+                Request::builder(
+                    Method::GET,
+                    "file://example.com/not_existing".parse().unwrap(),
+                )
+                .build(),
+            )
+            .is_err());
     }
 }

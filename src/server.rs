@@ -29,7 +29,7 @@ use std::time::Duration;
 ///     }
 /// });
 /// // Raise a timeout error if the client does not respond after 10s.
-/// server.set_global_timeout(Some(Duration::from_secs(10)));
+/// server.set_global_timeout(Duration::from_secs(10));
 /// // Listen to localhost:8080
 /// server.listen(("localhost", 8080))?;
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
@@ -52,21 +52,21 @@ impl Server {
     }
 
     /// Sets the default value for the [`Server`](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#field.server) header.
-    pub fn set_server(&mut self, server: String) -> std::result::Result<(), InvalidHeader> {
-        self.server = Some(HeaderValue::try_from(server)?);
+    pub fn set_server_name(
+        &mut self,
+        server: impl Into<String>,
+    ) -> std::result::Result<(), InvalidHeader> {
+        self.server = Some(HeaderValue::try_from(server.into())?);
         Ok(())
     }
 
     /// Sets the global timout value (applies to both read and write).
-    ///
-    /// Set to `None` to wait indefinitely.
-    pub fn set_global_timeout(&mut self, timeout: Option<Duration>) {
-        self.timeout = timeout;
+    pub fn set_global_timeout(&mut self, timeout: Duration) {
+        self.timeout = Some(timeout);
     }
 
     /// Runs the server
     pub fn listen(&self, address: impl ToSocketAddrs) -> Result<()> {
-        //TODO: socket timeout
         for stream in TcpListener::bind(address)?.incoming() {
             match stream {
                 Ok(stream) => {
@@ -109,15 +109,12 @@ fn accept_request(
                         read_body_and_build_response(request, reader, on_request.as_ref())
                     } else {
                         (
-                            build_error(
-                                Error::new(
-                                    ErrorKind::Other,
-                                    format!(
-                                        "Expect header value '{}' is not supported",
-                                        String::from_utf8_lossy(expect.as_ref())
-                                    ),
-                                ),
+                            build_text_response(
                                 Status::EXPECTATION_FAILED,
+                                format!(
+                                    "Expect header value '{}' is not supported.",
+                                    String::from_utf8_lossy(expect.as_ref())
+                                ),
                             ),
                             ConnectionState::Close,
                         )
@@ -126,10 +123,7 @@ fn accept_request(
                     read_body_and_build_response(request, reader, on_request.as_ref())
                 }
             }
-            Err(error) => (
-                build_error(error, Status::BAD_REQUEST),
-                ConnectionState::Close,
-            ),
+            Err(error) => (build_error(error), ConnectionState::Close),
         };
         connection_state = new_connection_state;
 
@@ -157,10 +151,7 @@ fn read_body_and_build_response(
             let response = on_request(&mut request);
             // We make sure to finish reading the body
             if let Err(error) = copy(request.body_mut(), &mut sink()) {
-                (
-                    build_error(error, Status::BAD_REQUEST),
-                    ConnectionState::Close,
-                ) //TODO: ignore?
+                (build_error(error), ConnectionState::Close) //TODO: ignore?
             } else {
                 let connection_state = request
                     .header(&HeaderName::CONNECTION)
@@ -172,20 +163,26 @@ fn read_body_and_build_response(
                 (response, connection_state)
             }
         }
-        Err(error) => (
-            build_error(error, Status::BAD_REQUEST),
-            ConnectionState::Close,
-        ),
+        Err(error) => (build_error(error), ConnectionState::Close),
     }
 }
 
-fn build_error(error: Error, other_kind_status: Status) -> Response {
-    Response::builder(match error.kind() {
-        ErrorKind::TimedOut => Status::REQUEST_TIMEOUT,
-        ErrorKind::InvalidData => Status::BAD_REQUEST,
-        _ => other_kind_status,
-    })
-    .with_body(error.to_string())
+fn build_error(error: Error) -> Response {
+    build_text_response(
+        match error.kind() {
+            ErrorKind::TimedOut => Status::REQUEST_TIMEOUT,
+            ErrorKind::InvalidData => Status::BAD_REQUEST,
+            _ => Status::INTERNAL_SERVER_ERROR,
+        },
+        error.to_string(),
+    )
+}
+
+fn build_text_response(status: Status, text: String) -> Response {
+    Response::builder(status)
+        .with_header(HeaderName::CONTENT_TYPE, "text/plain")
+        .unwrap()
+        .with_body(text)
 }
 
 fn set_header_fallback(
@@ -199,5 +196,70 @@ fn set_header_fallback(
                 .headers_mut()
                 .set(header_name, header_value.clone())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::Status;
+    use std::io::Read;
+    use std::thread::sleep;
+
+    #[test]
+    fn test_regular_http_operations() -> Result<()> {
+        test_server(9999, [
+            "GET / HTTP/1.1\nhost: localhost:9999\n\n",
+            "POST /foo HTTP/1.1\nhost: localhost:9999\nexpect: 100-continue\nconnection:close\ncontent-length:4\n\nabcd",
+        ], [
+            "HTTP/1.1 200 OK\r\nserver: OxHTTP/1.0\r\ncontent-length: 4\r\n\r\nhome",
+            "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 404 Not Found\r\nserver: OxHTTP/1.0\r\n\r\n"
+        ])
+    }
+
+    #[test]
+    fn test_bad_request() -> Result<()> {
+        test_server(
+            9998,
+            ["GET / HTTP/1.1\nhost: localhost:9999\nfoo\n\n"],
+            ["HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain\r\nserver: OxHTTP/1.0\r\ncontent-length: 19\r\n\r\ninvalid header name"],
+        )
+    }
+
+    #[test]
+    fn test_bad_expect() -> Result<()> {
+        test_server(
+            9997,
+            ["GET / HTTP/1.1\nhost: localhost:9999\nexpect: bad\n\n"],
+            ["HTTP/1.1 417 Expectation Failed\r\ncontent-type: text/plain\r\nserver: OxHTTP/1.0\r\ncontent-length: 43\r\n\r\nExpect header value 'bad' is not supported."],
+        )
+    }
+
+    fn test_server(
+        port: u16,
+        requests: impl IntoIterator<Item = &'static str>,
+        responses: impl IntoIterator<Item = &'static str>,
+    ) -> Result<()> {
+        spawn(move || {
+            let mut server = Server::new(|request| {
+                if request.url().path() == "/" {
+                    Response::builder(Status::OK).with_body("home")
+                } else {
+                    Response::builder(Status::NOT_FOUND).build()
+                }
+            });
+            server.set_server_name("OxHTTP/1.0").unwrap();
+            server.set_global_timeout(Duration::from_secs(1));
+            server.listen(("localhost", port)).unwrap();
+        });
+        sleep(Duration::from_millis(10)); // Makes sure the server is up
+        let mut stream = TcpStream::connect(("localhost", port))?;
+        for (request, response) in requests.into_iter().zip(responses) {
+            stream.write_all(request.as_bytes())?;
+            let mut output = vec![b'\0'; response.len()];
+            stream.read_exact(&mut output)?;
+            assert_eq!(String::from_utf8(output).unwrap(), response);
+        }
+        Ok(())
     }
 }

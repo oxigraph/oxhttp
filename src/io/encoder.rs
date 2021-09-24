@@ -83,7 +83,7 @@ fn encode_body(mut body: Body, writer: &mut impl Write) -> Result<()> {
         let mut buffer = [b'\0'; 1024];
         loop {
             let read = body.read(&mut buffer)?;
-            write!(writer, "{}\r\n", read)?;
+            write!(writer, "{:X}\r\n", read)?;
             writer.write_all(&buffer[..read])?;
             write!(writer, "\r\n")?;
             if read == 0 {
@@ -129,15 +129,32 @@ fn is_forbidden_name(header: &HeaderName) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Method;
+    use crate::model::{ChunkedTransferPayload, Headers, Method, Status};
     use std::io::Cursor;
     use std::str;
+
+    #[test]
+    fn user_password_not_allowed_in_request() {
+        let mut buffer = Vec::new();
+        assert!(encode_request(
+            Request::builder(Method::GET, "http://foo@example.com/".parse().unwrap()).build(),
+            &mut buffer
+        )
+        .is_err());
+        assert!(encode_request(
+            Request::builder(Method::GET, "http://foo:bar@example.com/".parse().unwrap()).build(),
+            &mut buffer
+        )
+        .is_err());
+    }
 
     #[test]
     fn encode_get_request() -> Result<()> {
         let request = Request::builder(
             Method::GET,
-            "http://example.com/foo/bar?query#fragment".parse().unwrap(),
+            "http://example.com:81/foo/bar?query#fragment"
+                .parse()
+                .unwrap(),
         )
         .with_header(HeaderName::ACCEPT, "application/json")
         .unwrap()
@@ -146,7 +163,7 @@ mod tests {
         encode_request(request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
-            "GET /foo/bar?query HTTP/1.1\r\nhost: example.com\r\naccept: application/json\r\n\r\n"
+            "GET /foo/bar?query HTTP/1.1\r\nhost: example.com:81\r\naccept: application/json\r\n\r\n"
         );
         Ok(())
     }
@@ -159,29 +176,79 @@ mod tests {
         )
         .with_header(HeaderName::ACCEPT, "application/json")
         .unwrap()
-        .with_body(b"testbody".as_ref());
+        .with_body(b"testbodybody".as_ref());
         let mut buffer = Vec::new();
         encode_request(request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
-            "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\naccept: application/json\r\ncontent-length: 8\r\n\r\ntestbody"
+            "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\naccept: application/json\r\ncontent-length: 12\r\n\r\ntestbodybody"
         );
         Ok(())
     }
 
     #[test]
     fn encode_post_request_with_chunked() -> Result<()> {
+        let mut trailers = Headers::new();
+        trailers.append(HeaderName::CONTENT_LANGUAGE, "foo".parse().unwrap());
+
         let request = Request::builder(
             Method::POST,
             "http://example.com/foo/bar?query#fragment".parse().unwrap(),
         )
-        .with_body(Body::from_read(Cursor::new(b"testbody")));
+        .with_body(Body::from_chunked_transfer_payload(SimpleTrailers {
+            read: Cursor::new("testbodybody"),
+            trailers,
+        }));
         let mut buffer = Vec::new();
         encode_request(request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
-            "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\ntransfer-encoding: chunked\r\n\r\n8\r\ntestbody\r\n0\r\n\r\n\r\n"
+            "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\ntransfer-encoding: chunked\r\n\r\nC\r\ntestbodybody\r\n0\r\n\r\ncontent-language: foo\r\n\r\n"
         );
         Ok(())
+    }
+
+    #[test]
+    fn encode_response_ok() -> Result<()> {
+        let response = Response::builder(Status::OK)
+            .with_header(HeaderName::ACCEPT, "application/json")
+            .unwrap()
+            .with_body("test test2");
+        let mut buffer = Vec::new();
+        encode_response(response, &mut buffer)?;
+        assert_eq!(
+            str::from_utf8(&buffer).unwrap(),
+            "HTTP/1.1 200 OK\r\naccept: application/json\r\ncontent-length: 10\r\n\r\ntest test2"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn encode_response_not_found() -> Result<()> {
+        let response = Response::builder(Status::NOT_FOUND).build();
+        let mut buffer = Vec::new();
+        encode_response(response, &mut buffer)?;
+        assert_eq!(
+            str::from_utf8(&buffer).unwrap(),
+            "HTTP/1.1 404 Not Found\r\n\r\n"
+        );
+        Ok(())
+    }
+
+    struct SimpleTrailers {
+        read: Cursor<&'static str>,
+        trailers: Headers,
+    }
+
+    impl Read for SimpleTrailers {
+        fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+            self.read.read(buf)
+        }
+    }
+
+    impl ChunkedTransferPayload for SimpleTrailers {
+        fn trailers(&self) -> Option<&Headers> {
+            Some(&self.trailers)
+        }
     }
 }

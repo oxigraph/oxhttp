@@ -479,3 +479,29 @@ impl fmt::Display for InvalidHeader {
 }
 
 impl Error for InvalidHeader {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_header_name() {
+        assert!(HeaderName::from_str("").is_err());
+        assert!(HeaderName::from_str("ffo bar").is_err());
+        assert!(HeaderName::from_str("ffo\tbar").is_err());
+        assert!(HeaderName::from_str("ffo\rbar").is_err());
+        assert!(HeaderName::from_str("ffo\nbar").is_err());
+        assert!(HeaderName::from_str("ffoébar").is_err());
+        assert!(HeaderName::from_str("foo-bar").is_ok());
+    }
+
+    #[test]
+    fn validate_header_value() {
+        assert!(HeaderValue::from_str("").is_ok());
+        assert!(HeaderValue::from_str(" ffobar").is_err());
+        assert!(HeaderValue::from_str("ffobar ").is_err());
+        assert!(HeaderValue::from_str("ffo\rbar").is_err());
+        assert!(HeaderValue::from_str("ffo\nbar").is_err());
+        assert!(HeaderValue::from_str("ffoébar").is_ok());
+    }
+}

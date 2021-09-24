@@ -11,7 +11,7 @@ use std::str::FromStr;
 /// use oxhttp::model::Method;
 /// use std::str::FromStr;
 ///
-/// assert_eq!(Method::GET, Method::from_str("get")?);
+/// assert_eq!(Method::from_str("get")?, Method::GET);
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
 #[derive(PartialEq, Eq, Debug, Clone, Hash)]
@@ -138,3 +138,18 @@ impl fmt::Display for InvalidMethod {
 }
 
 impl Error for InvalidMethod {}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_header_name() {
+        assert!(Method::from_str("").is_err());
+        assert!(Method::from_str("ffo bar").is_err());
+        assert!(Method::from_str("ffo\tbar").is_err());
+        assert!(Method::from_str("ffo\rbar").is_err());
+        assert!(Method::from_str("ffo\nbar").is_err());
+        assert!(Method::from_str("ffoébar").is_err());
+        assert!(Method::from_str("foo-bar").is_ok());
+    }
+}
