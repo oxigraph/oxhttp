@@ -25,6 +25,7 @@ pub struct Request {
 }
 
 impl Request {
+    #[inline]
     pub fn builder(method: Method, url: Url) -> RequestBuilder {
         RequestBuilder {
             method,
@@ -33,26 +34,32 @@ impl Request {
         }
     }
 
+    #[inline]
     pub fn method(&self) -> &Method {
         &self.method
     }
 
+    #[inline]
     pub fn url(&self) -> &Url {
         &self.url
     }
 
+    #[inline]
     pub fn headers(&self) -> &Headers {
         &self.headers
     }
 
+    #[inline]
     pub fn headers_mut(&mut self) -> &mut Headers {
         &mut self.headers
     }
 
+    #[inline]
     pub fn header(&self, name: &HeaderName) -> Option<&HeaderValue> {
         self.headers.get(name)
     }
 
+    #[inline]
     pub fn append_header(
         &mut self,
         name: HeaderName,
@@ -62,14 +69,17 @@ impl Request {
         Ok(())
     }
 
+    #[inline]
     pub fn body(&self) -> &Body {
         &self.body
     }
 
+    #[inline]
     pub fn body_mut(&mut self) -> &mut Body {
         &mut self.body
     }
 
+    #[inline]
     pub fn into_body(self) -> Body {
         self.body
     }
@@ -83,26 +93,32 @@ pub struct RequestBuilder {
 }
 
 impl RequestBuilder {
+    #[inline]
     pub fn method(&self) -> &Method {
         &self.method
     }
 
+    #[inline]
     pub fn url(&self) -> &Url {
         &self.url
     }
 
+    #[inline]
     pub fn headers(&self) -> &Headers {
         &self.headers
     }
 
+    #[inline]
     pub fn headers_mut(&mut self) -> &mut Headers {
         &mut self.headers
     }
 
+    #[inline]
     pub fn header(&self, name: &HeaderName) -> Option<&HeaderValue> {
         self.headers.get(name)
     }
 
+    #[inline]
     pub fn with_header(
         mut self,
         name: HeaderName,
@@ -112,6 +128,7 @@ impl RequestBuilder {
         Ok(self)
     }
 
+    #[inline]
     pub fn with_body(self, body: impl Into<Body>) -> Request {
         Request {
             method: self.method,
@@ -121,6 +138,7 @@ impl RequestBuilder {
         }
     }
 
+    #[inline]
     pub fn build(self) -> Request {
         self.with_body(Body::default())
     }

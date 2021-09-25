@@ -43,6 +43,7 @@ pub struct Server {
 
 impl Server {
     /// Builds the server using the given `on_request` method that builds a `Response` from a given `Request`.
+    #[inline]
     pub fn new(on_request: impl Fn(&mut Request) -> Response + Send + Sync + 'static) -> Self {
         Self {
             on_request: Arc::new(on_request),
@@ -52,6 +53,7 @@ impl Server {
     }
 
     /// Sets the default value for the [`Server`](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#field.server) header.
+    #[inline]
     pub fn set_server_name(
         &mut self,
         server: impl Into<String>,
@@ -61,6 +63,7 @@ impl Server {
     }
 
     /// Sets the global timout value (applies to both read and write).
+    #[inline]
     pub fn set_global_timeout(&mut self, timeout: Duration) {
         self.timeout = Some(timeout);
     }

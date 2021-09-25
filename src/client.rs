@@ -34,16 +34,19 @@ pub struct Client {
 }
 
 impl Client {
+    #[inline]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Sets the global timout value (applies to both read, write and connection).
+    #[inline]
     pub fn set_global_timeout(&mut self, timeout: Duration) {
         self.timeout = Some(timeout);
     }
 
     /// Sets the default value for the [`User-Agent`](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#field.user-agent) header.
+    #[inline]
     pub fn set_user_agent(
         &mut self,
         user_agent: impl Into<String>,

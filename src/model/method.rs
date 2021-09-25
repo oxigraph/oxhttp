@@ -39,18 +39,21 @@ impl Method {
 impl Deref for Method {
     type Target = str;
 
+    #[inline]
     fn deref(&self) -> &str {
         &self.0
     }
 }
 
 impl AsRef<str> for Method {
+    #[inline]
     fn as_ref(&self) -> &str {
         &self.0
     }
 }
 
 impl Borrow<str> for Method {
+    #[inline]
     fn borrow(&self) -> &str {
         &self.0
     }
@@ -59,6 +62,7 @@ impl Borrow<str> for Method {
 impl FromStr for Method {
     type Err = InvalidMethod;
 
+    #[inline]
     fn from_str(name: &str) -> Result<Self, InvalidMethod> {
         for method in STATIC_METHODS {
             if method.eq_ignore_ascii_case(name) {
@@ -72,6 +76,7 @@ impl FromStr for Method {
 impl TryFrom<String> for Method {
     type Error = InvalidMethod;
 
+    #[inline]
     fn try_from(name: String) -> Result<Self, InvalidMethod> {
         for method in STATIC_METHODS {
             if method.eq_ignore_ascii_case(&name) {
@@ -98,6 +103,7 @@ impl TryFrom<String> for Method {
 }
 
 impl fmt::Display for Method {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_ref())
     }
@@ -125,6 +131,7 @@ enum InvalidMethodAlt {
 }
 
 impl fmt::Display for InvalidMethod {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
             InvalidMethodAlt::Empty => f.write_str("HTTP methods should not be empty"),

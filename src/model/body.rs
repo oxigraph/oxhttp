@@ -24,10 +24,12 @@ impl Body {
     /// Creates a new body from a [`Read`] implementation.
     ///
     /// If the body is sent as an HTTP request or response it will be streamed using [chunked transfer encoding](https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#chunked.encoding).
+    #[inline]
     pub fn from_read(read: impl Read + 'static) -> Self {
         Self::from_chunked_transfer_payload(SimpleChunkedTransferEncoding(read))
     }
 
+    #[inline]
     pub(crate) fn from_read_and_len(read: impl Read + 'static, len: u64) -> Self {
         Self(BodyAlt::Sized {
             total_len: len,
@@ -37,12 +39,14 @@ impl Body {
     }
 
     /// Creates a [chunked transfer encoding](https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#chunked.encoding) body with optional trailers.
+    #[inline]
     pub fn from_chunked_transfer_payload(payload: impl ChunkedTransferPayload + 'static) -> Self {
         Self(BodyAlt::Chunked(Box::new(payload)))
     }
 
     /// The number of bytes in the body (if known).
     #[allow(clippy::len_without_is_empty)]
+    #[inline]
     pub fn len(&self) -> Option<u64> {
         match &self.0 {
             BodyAlt::SimpleOwned(d) => Some(d.get_ref().len().try_into().unwrap()),
@@ -54,6 +58,7 @@ impl Body {
 
     /// Returns the chunked transfer encoding trailers if they exists and are already received.
     /// You should fully consume the body before attempting to fetch them.
+    #[inline]
     pub fn trailers(&self) -> Option<&Headers> {
         match &self.0 {
             BodyAlt::SimpleOwned(_) | BodyAlt::SimpleBorrowed(_) | BodyAlt::Sized { .. } => None,
@@ -73,6 +78,7 @@ impl Body {
     /// assert_eq!(&body.to_vec()?, b"foo");
     /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
     /// ```
+    #[inline]
     pub fn to_vec(mut self) -> Result<Vec<u8>> {
         let mut buf = Vec::new();
         self.read_to_end(&mut buf)?;
@@ -81,6 +87,7 @@ impl Body {
 }
 
 impl Read for Body {
+    #[inline]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         match &mut self.0 {
             BodyAlt::SimpleOwned(c) => c.read(buf),
@@ -111,36 +118,42 @@ impl Read for Body {
 }
 
 impl Default for Body {
+    #[inline]
     fn default() -> Self {
         b"".as_ref().into()
     }
 }
 
 impl From<Vec<u8>> for Body {
+    #[inline]
     fn from(data: Vec<u8>) -> Self {
         Self(BodyAlt::SimpleOwned(Cursor::new(data)))
     }
 }
 
 impl From<String> for Body {
+    #[inline]
     fn from(data: String) -> Self {
         data.into_bytes().into()
     }
 }
 
 impl From<&'static [u8]> for Body {
+    #[inline]
     fn from(data: &'static [u8]) -> Self {
         Self(BodyAlt::SimpleBorrowed(data))
     }
 }
 
 impl From<&'static str> for Body {
+    #[inline]
     fn from(data: &'static str) -> Self {
         data.as_bytes().into()
     }
 }
 
 impl fmt::Debug for Body {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
             BodyAlt::SimpleOwned(d) => f
@@ -163,12 +176,14 @@ pub trait ChunkedTransferPayload: Read {
 struct SimpleChunkedTransferEncoding<R: Read>(R);
 
 impl<R: Read> Read for SimpleChunkedTransferEncoding<R> {
+    #[inline]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         self.0.read(buf)
     }
 }
 
 impl<R: Read> ChunkedTransferPayload for SimpleChunkedTransferEncoding<R> {
+    #[inline]
     fn trailers(&self) -> Option<&Headers> {
         None
     }

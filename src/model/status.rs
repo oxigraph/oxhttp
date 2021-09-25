@@ -18,26 +18,31 @@ pub struct Status(u16);
 
 impl Status {
     /// Is the status [informational](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#status.1xx).
+    #[inline]
     pub fn is_informational(&self) -> bool {
         (100..=199).contains(&self.0)
     }
 
     /// Is the status [successful](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#status.2xx).
+    #[inline]
     pub fn is_successful(&self) -> bool {
         (200..=299).contains(&self.0)
     }
 
     /// Is the status [related to redirections](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#status.3xx).
+    #[inline]
     pub fn is_redirection(&self) -> bool {
         (300..=399).contains(&self.0)
     }
 
     /// Is the status a [client error](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#status.4xx).
+    #[inline]
     pub fn is_client_error(&self) -> bool {
         (400..=499).contains(&self.0)
     }
 
     /// Is the status [server error](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#status.5xx).
+    #[inline]
     pub fn is_server_error(&self) -> bool {
         (500..=599).contains(&self.0)
     }
@@ -202,18 +207,21 @@ impl Status {
 impl Deref for Status {
     type Target = u16;
 
+    #[inline]
     fn deref(&self) -> &u16 {
         &self.0
     }
 }
 
 impl AsRef<u16> for Status {
+    #[inline]
     fn as_ref(&self) -> &u16 {
         &self.0
     }
 }
 
 impl Borrow<u16> for Status {
+    #[inline]
     fn borrow(&self) -> &u16 {
         &self.0
     }
@@ -222,6 +230,7 @@ impl Borrow<u16> for Status {
 impl TryFrom<u16> for Status {
     type Error = InvalidStatus;
 
+    #[inline]
     fn try_from(code: u16) -> Result<Self, InvalidStatus> {
         if (0..=999).contains(&code) {
             Ok(Self(code))
@@ -232,12 +241,14 @@ impl TryFrom<u16> for Status {
 }
 
 impl From<Status> for u16 {
+    #[inline]
     fn from(status: Status) -> Self {
         status.0
     }
 }
 
 impl fmt::Display for Status {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(phrase) = self.reason_phrase() {
             write!(f, "{} {}", self.0, phrase)
@@ -253,6 +264,7 @@ impl fmt::Display for Status {
 pub struct InvalidStatus(u16);
 
 impl fmt::Display for InvalidStatus {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,

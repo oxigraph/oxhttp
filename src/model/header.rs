@@ -25,6 +25,7 @@ use std::str::{FromStr, Utf8Error};
 pub struct Headers(BTreeMap<HeaderName, HeaderValue>);
 
 impl Headers {
+    #[inline]
     pub fn new() -> Self {
         Self::default()
     }
@@ -32,6 +33,7 @@ impl Headers {
     /// Adds a header to the list.
     ///
     /// It does not override the existing value(s) for the same header.
+    #[inline]
     pub fn append(&mut self, name: HeaderName, value: HeaderValue) {
         match self.0.entry(name) {
             Entry::Occupied(e) => {
@@ -46,15 +48,18 @@ impl Headers {
     }
 
     /// Removes an header from the list.
+    #[inline]
     pub fn remove(&mut self, name: &HeaderName) {
         self.0.remove(name);
     }
 
     /// Get an header value(s) from the list.
+    #[inline]
     pub fn get(&self, name: &HeaderName) -> Option<&HeaderValue> {
         self.0.get(name)
     }
 
+    #[inline]
     pub fn contains(&self, name: &HeaderName) -> bool {
         self.0.contains_key(name)
     }
@@ -62,19 +67,23 @@ impl Headers {
     /// Sets a header it the list.
     ///
     /// It overrides the existing value(s) for the same header.
+    #[inline]
     pub fn set(&mut self, name: HeaderName, value: HeaderValue) {
         self.0.insert(name, value);
     }
 
+    #[inline]
     pub fn iter(&self) -> Iter<'_> {
         Iter(self.0.iter())
     }
 
     /// Number of distinct headers
+    #[inline]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -84,6 +93,7 @@ impl IntoIterator for Headers {
     type Item = (HeaderName, HeaderValue);
     type IntoIter = IntoIter;
 
+    #[inline]
     fn into_iter(self) -> IntoIter {
         IntoIter(self.0.into_iter())
     }
@@ -93,6 +103,7 @@ impl<'a> IntoIterator for &'a Headers {
     type Item = (&'a HeaderName, &'a HeaderValue);
     type IntoIter = Iter<'a>;
 
+    #[inline]
     fn into_iter(self) -> Iter<'a> {
         self.iter()
     }
@@ -113,6 +124,7 @@ impl<'a> IntoIterator for &'a Headers {
 pub struct HeaderName(Cow<'static, str>);
 
 impl HeaderName {
+    #[inline]
     pub(crate) fn new_unchecked(name: impl Into<Cow<'static, str>>) -> Self {
         Self(name.into())
     }
@@ -206,18 +218,21 @@ impl HeaderName {
 impl Deref for HeaderName {
     type Target = str;
 
+    #[inline]
     fn deref(&self) -> &str {
         &self.0
     }
 }
 
 impl AsRef<str> for HeaderName {
+    #[inline]
     fn as_ref(&self) -> &str {
         &self.0
     }
 }
 
 impl Borrow<str> for HeaderName {
+    #[inline]
     fn borrow(&self) -> &str {
         &self.0
     }
@@ -226,6 +241,7 @@ impl Borrow<str> for HeaderName {
 impl FromStr for HeaderName {
     type Err = InvalidHeader;
 
+    #[inline]
     fn from_str(name: &str) -> Result<Self, InvalidHeader> {
         name.to_owned().try_into()
     }
@@ -234,6 +250,7 @@ impl FromStr for HeaderName {
 impl TryFrom<&str> for HeaderName {
     type Error = InvalidHeader;
 
+    #[inline]
     fn try_from(value: &str) -> Result<Self, InvalidHeader> {
         value.to_owned().try_into()
     }
@@ -242,6 +259,7 @@ impl TryFrom<&str> for HeaderName {
 impl TryFrom<String> for HeaderName {
     type Error = InvalidHeader;
 
+    #[inline]
     fn try_from(mut name: String) -> Result<Self, InvalidHeader> {
         name.make_ascii_lowercase(); // We normalize to lowercase
         if name.is_empty() {
@@ -264,6 +282,7 @@ impl TryFrom<String> for HeaderName {
 }
 
 impl fmt::Display for HeaderName {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -282,10 +301,12 @@ impl fmt::Display for HeaderName {
 pub struct HeaderValue(Vec<u8>);
 
 impl HeaderValue {
+    #[inline]
     pub(crate) fn new_unchecked(value: impl Into<Vec<u8>>) -> Self {
         Self(value.into())
     }
 
+    #[inline]
     pub fn to_str(&self) -> Result<&str, Utf8Error> {
         str::from_utf8(self)
     }
@@ -293,18 +314,21 @@ impl HeaderValue {
 impl Deref for HeaderValue {
     type Target = [u8];
 
+    #[inline]
     fn deref(&self) -> &[u8] {
         &self.0
     }
 }
 
 impl AsRef<[u8]> for HeaderValue {
+    #[inline]
     fn as_ref(&self) -> &[u8] {
         &self.0
     }
 }
 
 impl Borrow<[u8]> for HeaderValue {
+    #[inline]
     fn borrow(&self) -> &[u8] {
         &self.0
     }
@@ -313,6 +337,7 @@ impl Borrow<[u8]> for HeaderValue {
 impl FromStr for HeaderValue {
     type Err = InvalidHeader;
 
+    #[inline]
     fn from_str(value: &str) -> Result<Self, InvalidHeader> {
         value.to_owned().try_into()
     }
@@ -321,6 +346,7 @@ impl FromStr for HeaderValue {
 impl TryFrom<&str> for HeaderValue {
     type Error = InvalidHeader;
 
+    #[inline]
     fn try_from(value: &str) -> Result<Self, InvalidHeader> {
         value.to_owned().try_into()
     }
@@ -329,6 +355,7 @@ impl TryFrom<&str> for HeaderValue {
 impl TryFrom<String> for HeaderValue {
     type Error = InvalidHeader;
 
+    #[inline]
     fn try_from(value: String) -> Result<Self, InvalidHeader> {
         value.into_bytes().try_into()
     }
@@ -337,6 +364,7 @@ impl TryFrom<String> for HeaderValue {
 impl TryFrom<&[u8]> for HeaderValue {
     type Error = InvalidHeader;
 
+    #[inline]
     fn try_from(value: &[u8]) -> Result<Self, InvalidHeader> {
         value.to_owned().try_into()
     }
@@ -345,6 +373,7 @@ impl TryFrom<&[u8]> for HeaderValue {
 impl TryFrom<Vec<u8>> for HeaderValue {
     type Error = InvalidHeader;
 
+    #[inline]
     fn try_from(value: Vec<u8>) -> Result<Self, InvalidHeader> {
         // no tab or space at the beginning
         if let Some(c) = value.first().cloned() {
@@ -378,6 +407,7 @@ impl TryFrom<Vec<u8>> for HeaderValue {
 }
 
 impl fmt::Display for HeaderValue {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", String::from_utf8_lossy(&self.0))
     }
@@ -389,26 +419,31 @@ pub struct Iter<'a>(std::collections::btree_map::Iter<'a, HeaderName, HeaderValu
 impl<'a> Iterator for Iter<'a> {
     type Item = (&'a HeaderName, &'a HeaderValue);
 
+    #[inline]
     fn next(&mut self) -> Option<(&'a HeaderName, &'a HeaderValue)> {
         self.0.next()
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
     }
 
+    #[inline]
     fn last(self) -> Option<(&'a HeaderName, &'a HeaderValue)> {
         self.0.last()
     }
 }
 
 impl<'a> DoubleEndedIterator for Iter<'a> {
+    #[inline]
     fn next_back(&mut self) -> Option<(&'a HeaderName, &'a HeaderValue)> {
         self.0.next_back()
     }
 }
 
 impl<'a> ExactSizeIterator for Iter<'a> {
+    #[inline]
     fn len(&self) -> usize {
         self.0.len()
     }
@@ -420,26 +455,31 @@ pub struct IntoIter(std::collections::btree_map::IntoIter<HeaderName, HeaderValu
 impl Iterator for IntoIter {
     type Item = (HeaderName, HeaderValue);
 
+    #[inline]
     fn next(&mut self) -> Option<(HeaderName, HeaderValue)> {
         self.0.next()
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
     }
 
+    #[inline]
     fn last(self) -> Option<(HeaderName, HeaderValue)> {
         self.0.last()
     }
 }
 
 impl DoubleEndedIterator for IntoIter {
+    #[inline]
     fn next_back(&mut self) -> Option<(HeaderName, HeaderValue)> {
         self.0.next_back()
     }
 }
 
 impl ExactSizeIterator for IntoIter {
+    #[inline]
     fn len(&self) -> usize {
         self.0.len()
     }
@@ -457,6 +497,7 @@ enum InvalidHeaderAlt {
 }
 
 impl fmt::Display for InvalidHeader {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
             InvalidHeaderAlt::EmptyName => f.write_str("header names should not be empty"),

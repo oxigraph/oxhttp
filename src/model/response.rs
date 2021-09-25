@@ -23,6 +23,7 @@ pub struct Response {
 }
 
 impl Response {
+    #[inline]
     pub fn builder(status: Status) -> ResponseBuilder {
         ResponseBuilder {
             status,
@@ -30,22 +31,27 @@ impl Response {
         }
     }
 
+    #[inline]
     pub fn status(&self) -> Status {
         self.status
     }
 
+    #[inline]
     pub fn headers(&self) -> &Headers {
         &self.headers
     }
 
+    #[inline]
     pub fn headers_mut(&mut self) -> &mut Headers {
         &mut self.headers
     }
 
+    #[inline]
     pub fn header(&self, name: &HeaderName) -> Option<&HeaderValue> {
         self.headers.get(name)
     }
 
+    #[inline]
     pub fn append_header(
         &mut self,
         name: HeaderName,
@@ -55,14 +61,17 @@ impl Response {
         Ok(())
     }
 
+    #[inline]
     pub fn body(&self) -> &Body {
         &self.body
     }
 
+    #[inline]
     pub fn body_mut(&mut self) -> &mut Body {
         &mut self.body
     }
 
+    #[inline]
     pub fn into_body(self) -> Body {
         self.body
     }
@@ -75,22 +84,27 @@ pub struct ResponseBuilder {
 }
 
 impl ResponseBuilder {
+    #[inline]
     pub fn status(&self) -> Status {
         self.status
     }
 
+    #[inline]
     pub fn headers(&self) -> &Headers {
         &self.headers
     }
 
+    #[inline]
     pub fn headers_mut(&mut self) -> &mut Headers {
         &mut self.headers
     }
 
+    #[inline]
     pub fn header(&self, name: &HeaderName) -> Option<&HeaderValue> {
         self.headers.get(name)
     }
 
+    #[inline]
     pub fn with_header(
         mut self,
         name: HeaderName,
@@ -100,6 +114,7 @@ impl ResponseBuilder {
         Ok(self)
     }
 
+    #[inline]
     pub fn with_body(self, body: impl Into<Body>) -> Response {
         Response {
             status: self.status,
@@ -108,6 +123,7 @@ impl ResponseBuilder {
         }
     }
 
+    #[inline]
     pub fn build(self) -> Response {
         self.with_body(Body::default())
     }
