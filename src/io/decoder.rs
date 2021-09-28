@@ -78,10 +78,8 @@ pub fn decode_request_headers(
         if url.scheme() != "https" {
             return Err(invalid_data_error("The HTTPS URL scheme should be 'https"));
         }
-    } else {
-        if url.scheme() != "http" {
-            return Err(invalid_data_error("The HTTP URL scheme should be 'http"));
-        }
+    } else if url.scheme() != "http" {
+        return Err(invalid_data_error("The HTTP URL scheme should be 'http"));
     }
 
     let mut request = Request::builder(method, url);

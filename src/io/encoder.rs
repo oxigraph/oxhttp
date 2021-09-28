@@ -80,9 +80,17 @@ fn encode_body(mut body: Body, writer: &mut impl Write) -> Result<()> {
         }
     } else {
         write!(writer, "transfer-encoding: chunked\r\n\r\n")?;
-        let mut buffer = [b'\0'; 1024];
+        let mut buffer = vec![b'\0'; 4096];
         loop {
-            let read = body.read(&mut buffer)?;
+            let mut read = 0;
+            while read < 1024 {
+                // We try to avoid too small chunks
+                let new_read = body.read(&mut buffer[read..])?;
+                if new_read == 0 {
+                    break; // EOF
+                }
+                read += new_read;
+            }
             write!(writer, "{:X}\r\n", read)?;
             writer.write_all(&buffer[..read])?;
             write!(writer, "\r\n")?;

@@ -13,7 +13,7 @@ use std::time::Duration;
 /// A simple HTTP server.
 ///
 /// Warning: It currently starts a new thread on each connection and keep them open while the client connection is not closed.
-/// Use it at our own risks!
+/// Use it at our own risks! Use a reverse proxy in front of this server if you want to expose it publicly.
 ///
 /// ```no_run
 /// use oxhttp::Server;
