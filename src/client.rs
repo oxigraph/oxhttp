@@ -14,6 +14,8 @@ use std::time::Duration;
 ///
 /// It aims at following the basic concepts of the [Web Fetch standard](https://fetch.spec.whatwg.org/) without the bits specific to web browsers (context, CORS...).
 ///
+/// HTTPS is supported behind the disabled by default `native-tls` feature.
+///
 /// Missing: HSTS support, authentication, redirects and keep alive.
 ///
 /// ```

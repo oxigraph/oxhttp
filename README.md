@@ -13,6 +13,8 @@ OxHTTP is a very simple synchronous implementation of an [HTTP 1.1](https://http
 OxHTTP provides [a very simple client](https://docs.rs/oxhttp/latest/oxhttp/struct.Client.html).
 It aims at following the basic concepts of the [Web Fetch standard](https://fetch.spec.whatwg.org/) without the bits specific to web browsers (context, CORS...).
 
+HTTPS is supported behind the disabled by default `native-tls` feature.
+
 Example:
 ```rust
 let client = Client::new();

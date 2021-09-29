@@ -7,7 +7,7 @@ readme = "README.md"
 keywords = ["HTTP"]
 repository = "https://github.com/oxigraph/oxhttp"
 description = """
-Very simple implementation of an HTTP client and server in Rust
+Very simple implementation of an HTTP client and server
 """
 edition = "2018"
 
