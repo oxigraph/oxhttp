@@ -5,7 +5,8 @@ OxHTTP
 [![Latest Version](https://img.shields.io/crates/v/oxhttp.svg)](https://crates.io/crates/oxhttp)
 [![Released API docs](https://docs.rs/oxhttp/badge.svg)](https://docs.rs/oxhttp)
 
-OxHTTP is a very simple synchronous implementation of an [HTTP 1.1](https://httpwg.org/http-core/) client and server in Rust.
+OxHTTP is a very simple synchronous implementation of [HTTP 1.1](https://httpwg.org/http-core/) in Rust.
+It provides both a client and a server.
 
 
 ## Client
