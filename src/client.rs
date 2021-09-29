@@ -19,11 +19,13 @@ use std::time::Duration;
 /// ```
 /// use oxhttp::Client;
 /// use oxhttp::model::{Request, Method, Status, HeaderName};
+/// use std::io::Read;
 ///
 /// let client = Client::new();
 /// let response = client.request(Request::builder(Method::GET, "http://example.com".parse()?).build())?;
 /// assert_eq!(response.status(), Status::OK);
 /// assert_eq!(response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"text/html; charset=UTF-8");
+/// let body = response.into_body().to_string()?;
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
 #[allow(missing_copy_implementations)]

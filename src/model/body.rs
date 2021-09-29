@@ -38,7 +38,7 @@ impl Body {
         })
     }
 
-    /// Creates a [chunked transfer encoding](https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#chunked.encoding) body with optional trailers.
+    /// Creates a [chunked transfer encoding](https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#chunked.encoding) body with optional [trailers](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#trailer.fields).
     #[inline]
     pub fn from_chunked_transfer_payload(payload: impl ChunkedTransferPayload + 'static) -> Self {
         Self(BodyAlt::Chunked(Box::new(payload)))
@@ -82,6 +82,25 @@ impl Body {
     pub fn to_vec(mut self) -> Result<Vec<u8>> {
         let mut buf = Vec::new();
         self.read_to_end(&mut buf)?;
+        Ok(buf)
+    }
+
+    /// Reads the full body into a string.
+    ///
+    /// WARNING: Beware of the body size!
+    ///
+    /// ```
+    /// use oxhttp::model::Body;
+    /// use std::io::Cursor;
+    ///
+    /// let mut body = Body::from_read(b"foo".as_ref());
+    /// assert_eq!(&body.to_string()?, "foo");
+    /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
+    /// ```
+    #[inline]
+    pub fn to_string(mut self) -> Result<String> {
+        let mut buf = String::new();
+        self.read_to_string(&mut buf)?;
         Ok(buf)
     }
 }
@@ -169,7 +188,12 @@ impl fmt::Debug for Body {
     }
 }
 
+/// Trait to give to [`Body::from_chunked_transfer_payload`] a body to serialize
+/// as [chunked transfer encoding](https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#chunked.encoding).
+///
+/// It allows to provide [trailers](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#trailer.fields) to serialize.
 pub trait ChunkedTransferPayload: Read {
+    /// The [trailers](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#trailer.fields) to serialize.
     fn trailers(&self) -> Option<&Headers>;
 }
 

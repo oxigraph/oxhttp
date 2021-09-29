@@ -433,9 +433,7 @@ mod tests {
             "GET / HTTP/1.1\nHost: www.example.org:8001\ncontent-length: 9\n\nfoobarbar",
         );
         let request = decode_request_body(decode_request_headers(&mut read, false)?, read)?;
-        let mut buffer = Vec::new();
-        request.into_body().read_to_end(&mut buffer)?;
-        assert_eq!(buffer, b"foobarbar");
+        assert_eq!(request.into_body().to_string()?, "foobarbar");
         Ok(())
     }
 
@@ -482,11 +480,10 @@ mod tests {
     fn decode_request_stop_in_body() -> Result<()> {
         let mut read =
             Cursor::new("POST / HTTP/1.1\r\nhost: example.com\r\ncontent-length: 12\r\n\r\nfoobar");
-        let mut buffer = Vec::new();
         assert!(
             decode_request_body(decode_request_headers(&mut read, false)?, read)?
                 .into_body()
-                .read_to_end(&mut buffer)
+                .to_vec()
                 .is_err()
         );
         Ok(())
@@ -534,9 +531,7 @@ mod tests {
                 .unwrap(),
             "text/plain"
         );
-        let mut buf = String::new();
-        response.into_body().read_to_string(&mut buf)?;
-        assert_eq!(buf, "testbodybody");
+        assert_eq!(response.into_body().to_string()?, "testbodybody");
         Ok(())
     }
 
@@ -554,9 +549,10 @@ mod tests {
                 .unwrap(),
             "text/plain"
         );
-        let mut buf = String::new();
-        response.into_body().read_to_string(&mut buf)?;
-        assert_eq!(buf, "Wikipedia in\r\n\r\nchunks.");
+        assert_eq!(
+            response.into_body().to_string()?,
+            "Wikipedia in\r\n\r\nchunks."
+        );
         Ok(())
     }
 
@@ -594,8 +590,7 @@ mod tests {
         let response = decode_response(Cursor::new(
             "HTTP/1.1 200 OK\r\ntransfer-encoding:chunked\r\n\r\nh\r\nWiki\r\n0\r\n\r\n",
         ))?;
-        let mut buf = String::new();
-        assert!(response.into_body().read_to_string(&mut buf).is_err());
+        assert!(response.into_body().to_string().is_err());
         Ok(())
     }
 
@@ -604,8 +599,7 @@ mod tests {
         let response = decode_response(Cursor::new(
             "HTTP/1.1 200 OK\r\ntransfer-encoding:chunked\r\n\r\nf\r\nWiki\r\n0\r\ntest\n: foo\r\n\r\n",
         ))?;
-        let mut buf = String::new();
-        assert!(response.into_body().read_to_string(&mut buf).is_err());
+        assert!(response.into_body().to_string().is_err());
         Ok(())
     }
 
@@ -614,8 +608,7 @@ mod tests {
         let response = decode_response(Cursor::new(
             "HTTP/1.1 200 OK\r\ntransfer-encoding:chunked\r\n\r\nf\r\nWiki",
         ))?;
-        let mut buf = String::new();
-        assert!(response.into_body().read_to_string(&mut buf).is_err());
+        assert!(response.into_body().to_string().is_err());
         Ok(())
     }
 
@@ -655,12 +648,11 @@ mod tests {
 
     #[test]
     fn decode_response_stop_in_body() -> Result<()> {
-        let mut buffer = Vec::new();
         assert!(decode_response(Cursor::new(
             "HTTP/1.1 200 OK\r\ncontent-length: 12\r\n\r\nfoobar"
         ))?
         .into_body()
-        .read_to_end(&mut buffer)
+        .to_vec()
         .is_err());
         Ok(())
     }

@@ -20,7 +20,7 @@ use std::time::Duration;
 /// use oxhttp::model::{Response, Status};
 /// use std::time::Duration;
 ///
-/// // Builds a new server that returns a 404 everywhere except for "/" where it returns the body 'home' "/
+/// // Builds a new server that returns a 404 everywhere except for "/" where it returns the body 'home'
 /// let mut server = Server::new(|request| {
 ///     if request.url().path() == "/" {
 ///         Response::builder(Status::OK).with_body("home")
@@ -68,7 +68,7 @@ impl Server {
         self.timeout = Some(timeout);
     }
 
-    /// Runs the server
+    /// Runs the server by listening to `address`.
     pub fn listen(&self, address: impl ToSocketAddrs) -> Result<()> {
         for stream in TcpListener::bind(address)?.incoming() {
             match stream {
