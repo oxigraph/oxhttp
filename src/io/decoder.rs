@@ -10,6 +10,7 @@ use std::str;
 use std::str::FromStr;
 
 const DEFAULT_SIZE: usize = 1024;
+const MAX_HEADER_SIZE: u64 = 8 * 1024;
 
 pub fn decode_request_headers(
     reader: &mut impl BufRead,
@@ -143,7 +144,8 @@ pub fn decode_response(mut reader: impl BufRead + 'static) -> Result<Response> {
     Ok(response.with_body(body))
 }
 
-fn read_header_bytes(mut reader: impl BufRead) -> Result<Vec<u8>> {
+fn read_header_bytes(reader: impl BufRead) -> Result<Vec<u8>> {
+    let mut reader = reader.take(2 * MAX_HEADER_SIZE); // Makes sure we do not buffer too much
     let mut buffer = Vec::with_capacity(DEFAULT_SIZE);
     loop {
         if reader.read_until(b'\n', &mut buffer)? == 0 {
@@ -155,7 +157,7 @@ fn read_header_bytes(mut reader: impl BufRead) -> Result<Vec<u8>> {
             buffer.pop();
             buffer.push(b'\n')
         }
-        if buffer.len() > 8 * 1024 {
+        if buffer.len() > (MAX_HEADER_SIZE as usize) {
             return Err(invalid_data_error("The headers size should fit in 8kb"));
         }
         if buffer.ends_with(b"\n\n") {
