@@ -72,18 +72,30 @@ impl Server {
     pub fn listen(&self, address: impl ToSocketAddrs) -> Result<()> {
         for stream in TcpListener::bind(address)?.incoming() {
             match stream {
-                Ok(stream) => {
-                    let on_request = self.on_request.clone();
-                    let timeout = self.timeout;
-                    let server = self.server.clone();
-                    spawn(move || {
-                        if let Err(error) = accept_request(stream, on_request, timeout, server) {
-                            eprint!("TCP error when writing response: {}", error);
-                        }
-                    });
-                }
+                Ok(stream) => match stream.peer_addr() {
+                    Ok(peer) => {
+                        let on_request = self.on_request.clone();
+                        let timeout = self.timeout;
+                        let server = self.server.clone();
+                        spawn(move || {
+                            if let Err(error) = accept_request(stream, on_request, timeout, server)
+                            {
+                                eprintln!(
+                                    "OxHTTP TCP error when writing response to {}: {}",
+                                    peer, error
+                                );
+                            }
+                        });
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "OxHTTP TCP error when attempting to get the peer address: {}",
+                            error
+                        );
+                    }
+                },
                 Err(error) => {
-                    eprint!("TCP error when opening stream: {}", error);
+                    eprintln!("OxHTTP TCP error when opening stream: {}", error);
                 }
             }
         }
