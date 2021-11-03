@@ -111,8 +111,8 @@ impl Client {
         Err(Error::new(
             ErrorKind::Other,
             format!(
-                "The client redirected {} time, the latest target is {}",
-                self.redirection_limit,
+                "The server requested too many redirects ({}). The latest redirection target is {}",
+                self.redirection_limit + 1,
                 request.url()
             ),
         ))
