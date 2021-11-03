@@ -138,7 +138,13 @@ fn accept_request(
                     read_body_and_build_response(request, reader, on_request.as_ref())
                 }
             }
-            Err(error) => (build_error(error), ConnectionState::Close),
+            Err(error) => {
+                if error.kind() == ErrorKind::ConnectionAborted {
+                    return Ok(()); // The client is disconnected. Let's ignore this error and do not try to write an answer that won't be received.
+                } else {
+                    (build_error(error), ConnectionState::Close)
+                }
+            }
         };
         connection_state = new_connection_state;
 

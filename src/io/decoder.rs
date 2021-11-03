@@ -5,7 +5,7 @@ use crate::model::{
 use crate::utils::invalid_data_error;
 use std::cmp::min;
 use std::convert::{TryFrom, TryInto};
-use std::io::{BufRead, Read, Result};
+use std::io::{BufRead, Error, ErrorKind, Read, Result};
 use std::str;
 use std::str::FromStr;
 
@@ -149,7 +149,14 @@ fn read_header_bytes(reader: impl BufRead) -> Result<Vec<u8>> {
     let mut buffer = Vec::with_capacity(DEFAULT_SIZE);
     loop {
         if reader.read_until(b'\n', &mut buffer)? == 0 {
-            return Err(invalid_data_error("Empty HTTP request"));
+            return Err(Error::new(
+                ErrorKind::ConnectionAborted,
+                if buffer.is_empty() {
+                    "Empty HTTP request"
+                } else {
+                    "Interrupted HTTP request"
+                },
+            ));
         }
         // We normalize line ends to plain \n
         if buffer.ends_with(b"\r\n") {
@@ -470,23 +477,35 @@ mod tests {
 
     #[test]
     fn decode_request_empty() {
-        assert!(decode_request_headers(&mut Cursor::new(""), false).is_err());
+        assert_eq!(
+            decode_request_headers(&mut Cursor::new(""), false)
+                .err()
+                .map(|e| e.kind()),
+            Some(ErrorKind::ConnectionAborted)
+        );
     }
 
     #[test]
     fn decode_request_stop_in_header() {
-        assert!(decode_request_headers(&mut Cursor::new("GET /\r\n"), false).is_err());
+        assert_eq!(
+            decode_request_headers(&mut Cursor::new("GET /\r\n"), false)
+                .err()
+                .map(|e| e.kind()),
+            Some(ErrorKind::ConnectionAborted)
+        );
     }
 
     #[test]
     fn decode_request_stop_in_body() -> Result<()> {
         let mut read =
             Cursor::new("POST / HTTP/1.1\r\nhost: example.com\r\ncontent-length: 12\r\n\r\nfoobar");
-        assert!(
+        assert_eq!(
             decode_request_body(decode_request_headers(&mut read, false)?, read)?
                 .into_body()
                 .to_vec()
-                .is_err()
+                .err()
+                .map(|e| e.kind()),
+            Some(ErrorKind::ConnectionAborted)
         );
         Ok(())
     }
