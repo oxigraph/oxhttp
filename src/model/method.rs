@@ -18,6 +18,11 @@ use std::str::FromStr;
 pub struct Method(Cow<'static, str>);
 
 impl Method {
+    /// Is the method [safe](https://httpwg.org/specs/rfc7231.html#safe.methods)
+    pub(crate) fn is_safe(&self) -> bool {
+        matches!(self.as_ref(), "GET" | "HEAD" | "OPTIONS" | "TRACE")
+    }
+
     /// [CONNECT](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#CONNECT).
     pub const CONNECT: Method = Self(Cow::Borrowed("CONNECT"));
     /// [DELETE](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#DELETE).

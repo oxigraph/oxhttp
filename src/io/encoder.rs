@@ -2,7 +2,7 @@ use crate::model::{Body, HeaderName, Request, Response};
 use crate::utils::invalid_input_error;
 use std::io::{copy, Read, Result, Write};
 
-pub fn encode_request(request: Request, mut writer: impl Write) -> Result<()> {
+pub fn encode_request(request: &mut Request, mut writer: impl Write) -> Result<()> {
     if !request.url().username().is_empty() || request.url().password().is_some() {
         return Err(invalid_input_error(
             "Username and password are not allowed in HTTP URLs",
@@ -47,12 +47,12 @@ pub fn encode_request(request: Request, mut writer: impl Write) -> Result<()> {
     }
 
     // body with content-length if existing
-    encode_body(request.into_body(), &mut writer)?;
+    encode_body(request.body_mut(), &mut writer)?;
 
     writer.flush()
 }
 
-pub fn encode_response(response: Response, mut writer: impl Write) -> Result<()> {
+pub fn encode_response(response: &mut Response, mut writer: impl Write) -> Result<()> {
     write!(&mut writer, "HTTP/1.1 {}\r\n", response.status())?;
 
     // headers
@@ -65,16 +65,16 @@ pub fn encode_response(response: Response, mut writer: impl Write) -> Result<()>
     }
 
     // body with content-length if existing
-    encode_body(response.into_body(), &mut writer)?;
+    encode_body(response.body_mut(), &mut writer)?;
 
     writer.flush()
 }
 
-fn encode_body(mut body: Body, writer: &mut impl Write) -> Result<()> {
+fn encode_body(body: &mut Body, writer: &mut impl Write) -> Result<()> {
     if let Some(length) = body.len() {
         if length > 0 {
             write!(writer, "content-length: {}\r\n\r\n", length)?;
-            copy(&mut body, writer)?;
+            copy(body, writer)?;
         } else {
             write!(writer, "\r\n")?;
         }
@@ -145,12 +145,13 @@ mod tests {
     fn user_password_not_allowed_in_request() {
         let mut buffer = Vec::new();
         assert!(encode_request(
-            Request::builder(Method::GET, "http://foo@example.com/".parse().unwrap()).build(),
+            &mut Request::builder(Method::GET, "http://foo@example.com/".parse().unwrap()).build(),
             &mut buffer
         )
         .is_err());
         assert!(encode_request(
-            Request::builder(Method::GET, "http://foo:bar@example.com/".parse().unwrap()).build(),
+            &mut Request::builder(Method::GET, "http://foo:bar@example.com/".parse().unwrap())
+                .build(),
             &mut buffer
         )
         .is_err());
@@ -158,7 +159,7 @@ mod tests {
 
     #[test]
     fn encode_get_request() -> Result<()> {
-        let request = Request::builder(
+        let mut request = Request::builder(
             Method::GET,
             "http://example.com:81/foo/bar?query#fragment"
                 .parse()
@@ -168,7 +169,7 @@ mod tests {
         .unwrap()
         .build();
         let mut buffer = Vec::new();
-        encode_request(request, &mut buffer)?;
+        encode_request(&mut request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "GET /foo/bar?query HTTP/1.1\r\nhost: example.com:81\r\naccept: application/json\r\n\r\n"
@@ -178,7 +179,7 @@ mod tests {
 
     #[test]
     fn encode_post_request() -> Result<()> {
-        let request = Request::builder(
+        let mut request = Request::builder(
             Method::POST,
             "http://example.com/foo/bar?query#fragment".parse().unwrap(),
         )
@@ -186,7 +187,7 @@ mod tests {
         .unwrap()
         .with_body(b"testbodybody".as_ref());
         let mut buffer = Vec::new();
-        encode_request(request, &mut buffer)?;
+        encode_request(&mut request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\naccept: application/json\r\ncontent-length: 12\r\n\r\ntestbodybody"
@@ -199,7 +200,7 @@ mod tests {
         let mut trailers = Headers::new();
         trailers.append(HeaderName::CONTENT_LANGUAGE, "foo".parse().unwrap());
 
-        let request = Request::builder(
+        let mut request = Request::builder(
             Method::POST,
             "http://example.com/foo/bar?query#fragment".parse().unwrap(),
         )
@@ -208,7 +209,7 @@ mod tests {
             trailers,
         }));
         let mut buffer = Vec::new();
-        encode_request(request, &mut buffer)?;
+        encode_request(&mut request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\ntransfer-encoding: chunked\r\n\r\nC\r\ntestbodybody\r\n0\r\n\r\ncontent-language: foo\r\n\r\n"
@@ -218,12 +219,12 @@ mod tests {
 
     #[test]
     fn encode_response_ok() -> Result<()> {
-        let response = Response::builder(Status::OK)
+        let mut response = Response::builder(Status::OK)
             .with_header(HeaderName::ACCEPT, "application/json")
             .unwrap()
             .with_body("test test2");
         let mut buffer = Vec::new();
-        encode_response(response, &mut buffer)?;
+        encode_response(&mut response, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "HTTP/1.1 200 OK\r\naccept: application/json\r\ncontent-length: 10\r\n\r\ntest test2"
@@ -233,9 +234,9 @@ mod tests {
 
     #[test]
     fn encode_response_not_found() -> Result<()> {
-        let response = Response::builder(Status::NOT_FOUND).build();
+        let mut response = Response::builder(Status::NOT_FOUND).build();
         let mut buffer = Vec::new();
-        encode_response(response, &mut buffer)?;
+        encode_response(&mut response, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "HTTP/1.1 404 Not Found\r\n\r\n"

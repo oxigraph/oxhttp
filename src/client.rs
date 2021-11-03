@@ -1,8 +1,10 @@
 //! Simple HTTP client
 
 use crate::io::{decode_response, encode_request};
-use crate::model::{HeaderName, HeaderValue, InvalidHeader, Request, Response, Url};
-use crate::utils::invalid_input_error;
+use crate::model::{
+    HeaderName, HeaderValue, InvalidHeader, Method, Request, Response, Status, Url,
+};
+use crate::utils::{invalid_data_error, invalid_input_error};
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
 use std::convert::TryFrom;
@@ -35,6 +37,7 @@ use std::time::Duration;
 pub struct Client {
     timeout: Option<Duration>,
     user_agent: Option<HeaderValue>,
+    redirection_limit: usize,
 }
 
 impl Client {
@@ -59,9 +62,65 @@ impl Client {
         Ok(())
     }
 
+    /// Sets the number of time a redirection should be followed.
+    /// By default the redirections are not followed (limit = 0).
+    #[inline]
+    pub fn set_redirection_limit(&mut self, limit: usize) {
+        self.redirection_limit = limit;
+    }
+
     pub fn request(&self, mut request: Request) -> Result<Response> {
+        // Loops the number of allowed redirections + 1
+        for _ in 0..(self.redirection_limit + 1) {
+            let previous_method = request.method().clone();
+            let response = self.single_request(&mut request)?;
+            if let Some(location) = response.header(&HeaderName::LOCATION) {
+                let new_method = match response.status() {
+                    Status::MOVED_PERMANENTLY | Status::FOUND | Status::SEE_OTHER => {
+                        if previous_method == Method::HEAD {
+                            Method::HEAD
+                        } else {
+                            Method::GET
+                        }
+                    }
+                    Status::TEMPORARY_REDIRECT | Status::PERMANENT_REDIRECT
+                        if previous_method.is_safe() =>
+                    {
+                        previous_method
+                    }
+                    _ => return Ok(response),
+                };
+                let location = location.to_str().map_err(invalid_data_error)?;
+                let new_url = location.parse().map_err(|e| {
+                    invalid_data_error(format!(
+                        "Invalid URL in Location header raising error {}: {}",
+                        e, location
+                    ))
+                })?;
+                let mut request_builder = Request::builder(new_method, new_url);
+                for (header_name, header_value) in request.headers() {
+                    request_builder
+                        .headers_mut()
+                        .set(header_name.clone(), header_value.clone());
+                }
+                request = request_builder.build();
+            } else {
+                return Ok(response);
+            }
+        }
+        Err(Error::new(
+            ErrorKind::Other,
+            format!(
+                "The client redirected {} time, the latest target is {}",
+                self.redirection_limit,
+                request.url()
+            ),
+        ))
+    }
+
+    fn single_request(&self, request: &mut Request) -> Result<Response> {
         // Additional headers
-        set_header_fallback(&mut request, HeaderName::USER_AGENT, &self.user_agent);
+        set_header_fallback(request, HeaderName::USER_AGENT, &self.user_agent);
         request
             .headers_mut()
             .set(HeaderName::CONNECTION, HeaderValue::new_unchecked("close"));
@@ -233,7 +292,7 @@ mod tests {
 
     #[cfg(not(feature = "native-tls"))]
     #[test]
-    fn test_https_get_ok() {
+    fn test_https_get_err() {
         let client = Client::new();
         assert!(client
             .request(Request::builder(Method::GET, "https://example.com".parse().unwrap()).build())
@@ -266,5 +325,17 @@ mod tests {
                 .build(),
             )
             .is_err());
+    }
+
+    #[cfg(feature = "native-tls")]
+    #[test]
+    fn test_redirection() -> Result<()> {
+        let mut client = Client::new();
+        client.set_redirection_limit(5);
+        let response = client.request(
+            Request::builder(Method::GET, "http://wikipedia.org".parse().unwrap()).build(),
+        )?;
+        assert_eq!(response.status(), Status::OK);
+        Ok(())
     }
 }
