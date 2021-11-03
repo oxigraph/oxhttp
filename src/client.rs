@@ -91,7 +91,7 @@ impl Client {
                     _ => return Ok(response),
                 };
                 let location = location.to_str().map_err(invalid_data_error)?;
-                let new_url = location.parse().map_err(|e| {
+                let new_url = request.url().join(location).map_err(|e| {
                     invalid_data_error(format!(
                         "Invalid URL in Location header raising error {}: {}",
                         e, location
