@@ -19,7 +19,8 @@ jobs:
       - uses: actions/checkout@v1
       - run: rustup update
       - run: rustup component add clippy
-      - run: cargo clippy --all --all-targets
+      - run: cargo clippy --all-targets
+      - run: cargo clippy --all-targets --features native-tls
 
   test:
     runs-on: ubuntu-latest
@@ -27,6 +28,7 @@ jobs:
       - uses: actions/checkout@v1
       - run: rustup update
       - run: cargo build
-      - run: cargo test --verbose --all --all-targets
+      - run: cargo test --verbose --all-targets
+      - run: cargo test --verbose --all-targets --features native-tls
         env:
           RUST_BACKTRACE: 1
