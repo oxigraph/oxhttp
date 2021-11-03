@@ -18,7 +18,9 @@ use std::time::Duration;
 ///
 /// HTTPS is supported behind the disabled by default `native-tls` feature.
 ///
-/// Missing: HSTS support, authentication, redirects and keep alive.
+/// The client does not follow redirections by default. Use [`Client::set_redirection_limit`] to set a limit to the number of consecutive redirections the server should follow.
+///
+/// Missing: HSTS support, authentication and keep alive.
 ///
 /// ```
 /// use oxhttp::Client;
@@ -151,7 +153,7 @@ impl Client {
                     decode_response(BufReader::new(stream))
                 }
                 #[cfg(not(feature = "native-tls"))]
-                Err(invalid_input_error(format!("HTTPS is not supported by the client. You should enable the `native-tls` feature of the `oxhttp` crate")))
+                Err(invalid_input_error("HTTPS is not supported by the client. You should enable the `native-tls` feature of the `oxhttp` crate"))
             }
             _ => Err(invalid_input_error(format!(
                 "Not supported URL scheme: {}",
