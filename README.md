@@ -14,7 +14,7 @@ It provides both a client and a server.
 OxHTTP provides [a very simple client](https://docs.rs/oxhttp/latest/oxhttp/struct.Client.html).
 It aims at following the basic concepts of the [Web Fetch standard](https://fetch.spec.whatwg.org/) without the bits specific to web browsers (context, CORS...).
 
-HTTPS is supported behind the disabled by default `native-tls` feature.
+HTTPS is supported behind the disabled by default `native-tls` feature (to use the current system native implementation) or `rustls` feature (to use [Rustls](https://github.com/rustls/rustls)).
 
 Example:
 ```rust

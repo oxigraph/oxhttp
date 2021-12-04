@@ -7,16 +7,21 @@ use crate::model::{
 use crate::utils::{invalid_data_error, invalid_input_error};
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
+#[cfg(feature = "rustls")]
+use rustls_crate::{ClientConfig, ClientConnection, RootCertStore, ServerName, StreamOwned};
+#[cfg(feature = "rustls")]
+use rustls_native_certs::load_native_certs;
 use std::convert::TryFrom;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// A simple HTTP client.
 ///
 /// It aims at following the basic concepts of the [Web Fetch standard](https://fetch.spec.whatwg.org/) without the bits specific to web browsers (context, CORS...).
 ///
-/// HTTPS is supported behind the disabled by default `native-tls` feature.
+/// HTTPS is supported behind the disabled by default `native-tls` feature (to use the current system native implementation) or `rustls` feature (to use [Rustls](https://github.com/rustls/rustls)).
 ///
 /// The client does not follow redirections by default. Use [`Client::set_redirection_limit`] to set a limit to the number of consecutive redirections the server should follow.
 ///
@@ -34,12 +39,15 @@ use std::time::Duration;
 /// let body = response.into_body().to_string()?;
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
-#[allow(missing_copy_implementations)]
 #[derive(Default)]
 pub struct Client {
     timeout: Option<Duration>,
     user_agent: Option<HeaderValue>,
     redirection_limit: usize,
+    #[cfg(feature = "native-tls")]
+    tls_connector: Mutex<Option<Arc<TlsConnector>>>,
+    #[cfg(feature = "rustls")]
+    rustls_config: Mutex<Option<Arc<ClientConfig>>>,
 }
 
 impl Client {
@@ -142,18 +150,59 @@ impl Client {
             "https" => {
                 #[cfg(feature = "native-tls")]
                 {
+                    let connector = {
+                        let mut current_connector = self.tls_connector.lock().unwrap();
+                        if let Some(connector) = &*current_connector {
+                            connector.clone()
+                        } else {
+                            let connector =
+                                TlsConnector::new().map_err(|e| Error::new(ErrorKind::Other, e))?;
+                            let connector = Arc::new(connector);
+                            *current_connector = Some(connector.clone());
+                            connector
+                        }
+                    };
+
                     let port = get_and_validate_port(request.url(), 443)?;
-                    let connector =
-                        TlsConnector::new().map_err(|e| Error::new(ErrorKind::Other, e))?;
                     let stream = self.connect((host, port))?;
                     let mut stream = connector
                         .connect(host, stream)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
                     encode_request(request, BufWriter::new(&mut stream))?;
-                    decode_response(BufReader::new(stream))
+                    return decode_response(BufReader::new(stream));
                 }
-                #[cfg(not(feature = "native-tls"))]
-                Err(invalid_input_error("HTTPS is not supported by the client. You should enable the `native-tls` feature of the `oxhttp` crate"))
+                #[cfg(feature = "rustls")]
+                {
+                    let config = {
+                        let mut current_config = self.rustls_config.lock().unwrap();
+                        if let Some(config) = &*current_config {
+                            config.clone()
+                        } else {
+                            let mut root_store = RootCertStore::empty();
+                            for cert in load_native_certs()? {
+                                root_store.add_parsable_certificates(&[cert.0]);
+                            }
+                            let config = ClientConfig::builder()
+                                .with_safe_defaults()
+                                .with_root_certificates(root_store)
+                                .with_no_client_auth();
+                            let config = Arc::new(config);
+                            *current_config = Some(config.clone());
+                            config
+                        }
+                    };
+
+                    let port = get_and_validate_port(request.url(), 443)?;
+                    let dns_name =
+                        ServerName::try_from(host).map_err(|e| invalid_input_error(e))?;
+                    let connection = ClientConnection::new(config, dns_name)
+                        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+                    let mut stream = StreamOwned::new(connection, self.connect((host, port))?);
+                    encode_request(request, BufWriter::new(&mut stream))?;
+                    return decode_response(BufReader::new(stream));
+                }
+                #[cfg(not(any(feature = "native-tls", feature = "rustls")))]
+                return Err(invalid_input_error("HTTPS is not supported by the client. You should enable the `native-tls` or `rustls` feature of the `oxhttp` crate"));
             }
             _ => Err(invalid_input_error(format!(
                 "Not supported URL scheme: {}",
@@ -277,7 +326,7 @@ mod tests {
             .is_err());
     }
 
-    #[cfg(feature = "native-tls")]
+    #[cfg(any(feature = "native-tls", feature = "rustls"))]
     #[test]
     fn test_https_get_ok() -> Result<()> {
         let client = Client::new();
@@ -292,7 +341,7 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(not(feature = "native-tls"))]
+    #[cfg(not(any(feature = "native-tls", feature = "rustls")))]
     #[test]
     fn test_https_get_err() {
         let client = Client::new();
@@ -329,7 +378,7 @@ mod tests {
             .is_err());
     }
 
-    #[cfg(feature = "native-tls")]
+    #[cfg(any(feature = "native-tls", feature = "rustls"))]
     #[test]
     fn test_redirection() -> Result<()> {
         let mut client = Client::new();

@@ -14,4 +14,9 @@ edition = "2018"
 [dependencies]
 httparse = "1"
 native-tls = { version = "0.2", optional = true }
+rustls-crate = { version = "0.20", optional = true, package = "rustls" }
+rustls-native-certs = { version = "0.6", optional = true }
 url = "2"
+
+[features]
+rustls = ["rustls-crate", "rustls-native-certs"]

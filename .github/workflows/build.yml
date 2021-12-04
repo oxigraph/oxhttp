@@ -30,5 +30,6 @@ jobs:
       - run: cargo build
       - run: cargo test --verbose --all-targets
       - run: cargo test --verbose --all-targets --features native-tls
+      - run: cargo test --verbose --all-targets --features rustls
         env:
           RUST_BACKTRACE: 1
