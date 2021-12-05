@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.3] - 2021-12-05
+
+### Added
+- [Rustls](https://github.com/rustls/rustls) usage is now available behind the `rustls` feature (disabled by default).
+
+
 ## [0.1.2] - 2021-11-03
 
 ### Added
@@ -7,6 +13,7 @@
 
 ### Changed
 - `Server`: Do not display a TCP error if the client disconnects without having sent the `Connection: close` header.
+
 
 ## [0.1.1] - 2021-09-30
 
