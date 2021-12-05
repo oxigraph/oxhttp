@@ -128,6 +128,7 @@ impl Client {
         ))
     }
 
+    #[allow(unreachable_code, clippy::needless_return)]
     fn single_request(&self, request: &mut Request) -> Result<Response> {
         // Additional headers
         set_header_fallback(request, HeaderName::USER_AGENT, &self.user_agent);
@@ -193,8 +194,7 @@ impl Client {
                     };
 
                     let port = get_and_validate_port(request.url(), 443)?;
-                    let dns_name =
-                        ServerName::try_from(host).map_err(|e| invalid_input_error(e))?;
+                    let dns_name = ServerName::try_from(host).map_err(invalid_input_error)?;
                     let connection = ClientConnection::new(config, dns_name)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
                     let mut stream = StreamOwned::new(connection, self.connect((host, port))?);

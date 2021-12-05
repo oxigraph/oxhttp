@@ -21,6 +21,7 @@ jobs:
       - run: rustup component add clippy
       - run: cargo clippy --all-targets
       - run: cargo clippy --all-targets --features native-tls
+      - run: cargo clippy --all-targets --features rustls
 
   test:
     runs-on: ubuntu-latest
