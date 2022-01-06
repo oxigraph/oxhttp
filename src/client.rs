@@ -13,7 +13,8 @@ use rustls_crate::{ClientConfig, ClientConnection, RootCertStore, ServerName, St
 use rustls_native_certs::load_native_certs;
 use std::convert::TryFrom;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream};
+#[cfg(any(feature = "native-tls", feature = "rustls"))]
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -136,6 +137,7 @@ impl Client {
             .headers_mut()
             .set(HeaderName::CONNECTION, HeaderValue::new_unchecked("close"));
 
+        #[cfg(any(feature = "native-tls", feature = "rustls"))]
         let host = request
             .url()
             .host_str()
@@ -143,8 +145,8 @@ impl Client {
 
         match request.url().scheme() {
             "http" => {
-                let port = get_and_validate_port(request.url(), 80)?;
-                let mut stream = self.connect((host, port))?;
+                let addresses = get_and_validate_socket_addresses(request.url(), 80)?;
+                let mut stream = self.connect(&addresses)?;
                 encode_request(request, BufWriter::new(&mut stream))?;
                 decode_response(BufReader::new(stream))
             }
@@ -164,8 +166,8 @@ impl Client {
                         }
                     };
 
-                    let port = get_and_validate_port(request.url(), 443)?;
-                    let stream = self.connect((host, port))?;
+                    let addresses = get_and_validate_socket_addresses(request.url(), 443)?;
+                    let stream = self.connect(&addresses)?;
                     let mut stream = connector
                         .connect(host, stream)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
@@ -193,11 +195,11 @@ impl Client {
                         }
                     };
 
-                    let port = get_and_validate_port(request.url(), 443)?;
+                    let addresses = get_and_validate_socket_addresses(request.url(), 443)?;
                     let dns_name = ServerName::try_from(host).map_err(invalid_input_error)?;
                     let connection = ClientConnection::new(config, dns_name)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
-                    let mut stream = StreamOwned::new(connection, self.connect((host, port))?);
+                    let mut stream = StreamOwned::new(connection, self.connect(&addresses)?);
                     encode_request(request, BufWriter::new(&mut stream))?;
                     return decode_response(BufReader::new(stream));
                 }
@@ -211,20 +213,20 @@ impl Client {
         }
     }
 
-    fn connect(&self, addr: impl ToSocketAddrs) -> Result<TcpStream> {
+    fn connect(&self, addresses: &[SocketAddr]) -> Result<TcpStream> {
         let stream = if let Some(timeout) = self.timeout {
-            addr.to_socket_addrs()?.fold(
+            addresses.iter().fold(
                 Err(Error::new(
                     ErrorKind::InvalidInput,
                     "Not able to resolve the provide addresses",
                 )),
                 |e, addr| match e {
                     Ok(stream) => Ok(stream),
-                    Err(_) => TcpStream::connect_timeout(&addr, timeout),
+                    Err(_) => TcpStream::connect_timeout(addr, timeout),
                 },
             )
         } else {
-            TcpStream::connect(addr)
+            TcpStream::connect(addresses)
         }?;
         stream.set_read_timeout(self.timeout)?;
         stream.set_write_timeout(self.timeout)?;
@@ -242,17 +244,17 @@ const BAD_PORTS: [u16; 80] = [
     6697, 10080,
 ];
 
-fn get_and_validate_port(url: &Url, default_port: u16) -> Result<u16> {
-    url.port().map_or(Ok(default_port), |port| {
-        if BAD_PORTS.binary_search(&port).is_ok() {
-            Err(invalid_input_error(format!(
+fn get_and_validate_socket_addresses(url: &Url, default_port: u16) -> Result<Vec<SocketAddr>> {
+    let addresses = url.socket_addrs(|| Some(default_port))?;
+    for address in &addresses {
+        if BAD_PORTS.binary_search(&address.port()).is_ok() {
+            return Err(invalid_input_error(format!(
                 "The port {} is not allowed for HTTP(S) because it is dedicated to an other use",
-                port
-            )))
-        } else {
-            Ok(port)
+                address.port()
+            )));
         }
-    })
+    }
+    Ok(addresses)
 }
 
 fn set_header_fallback(
