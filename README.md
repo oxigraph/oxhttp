@@ -18,8 +18,16 @@ HTTPS is supported behind the disabled by default `native-tls` feature (to use t
 
 Example:
 ```rust
+use oxhttp::Client;
+use oxhttp::model::{Request, Method, Status, HeaderName};
+use std::io::Read;
+
 let client = Client::new();
-let response = client.request(Request::new(Method::GET, "http://example.com".parse()?))?;
+let response = client.request(Request::builder(Method::GET, "http://example.com".parse().unwrap()).build()).unwrap();
+assert_eq!(response.status(), Status::OK);
+assert_eq!(response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"text/html; charset=UTF-8");
+
+let body = response.into_body().to_string().unwrap();
 ```
 
 ## Server
@@ -28,19 +36,23 @@ OxHTTP provides [a very simple threaded HTTP server](https://docs.rs/oxhttp/late
 It is still a work in progress. Use at your own risks!
 
 Example:
-```rust
-// Builds a new server that returns a 404 everywhere except for "/" where it returns the body 'home' "/
+```rust no_run
+use oxhttp::Server;
+use oxhttp::model::{Response, Status};
+use std::time::Duration;
+
+// Builds a new server that returns a 404 everywhere except for "/" where it returns the body 'home'
 let mut server = Server::new(|request| {
     if request.url().path() == "/" {
-        Response::new(Status::OK).with_body("home")
+        Response::builder(Status::OK).with_body("home")
     } else {
-        Response::new(Status::NOT_FOUND)
+        Response::builder(Status::NOT_FOUND).build()
     }
 });
 // Raise a timeout error if the client does not respond after 10s.
-server.set_global_timeout(Some(Duration::from_secs(10)));
+server.set_global_timeout(Duration::from_secs(10));
 // Listen to localhost:8080
-server.listen(("localhost", 8080))?;
+server.listen(("localhost", 8080)).unwrap();
 ```
 
 ## License
@@ -48,9 +60,9 @@ server.listen(("localhost", 8080))?;
 This project is licensed under either of
 
  * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
-   http://www.apache.org/licenses/LICENSE-2.0)
+   `<http://www.apache.org/licenses/LICENSE-2.0>`)
  * MIT license ([LICENSE-MIT](LICENSE-MIT) or
-   http://opensource.org/licenses/MIT)
+   `<http://opensource.org/licenses/MIT>`)
    
 at your option.
 
