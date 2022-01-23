@@ -7,7 +7,7 @@ use std::convert::TryFrom;
 use std::io::{copy, sink, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
-use std::thread::spawn;
+use std::thread::Builder;
 use std::time::Duration;
 
 /// A simple HTTP server.
@@ -74,18 +74,24 @@ impl Server {
             match stream {
                 Ok(stream) => match stream.peer_addr() {
                     Ok(peer) => {
-                        let on_request = self.on_request.clone();
-                        let timeout = self.timeout;
-                        let server = self.server.clone();
-                        spawn(move || {
-                            if let Err(error) = accept_request(stream, on_request, timeout, server)
-                            {
-                                eprintln!(
-                                    "OxHTTP TCP error when writing response to {}: {}",
-                                    peer, error
-                                );
-                            }
-                        });
+                        while let Err(error) = {
+                            let stream = stream.try_clone()?;
+                            let on_request = self.on_request.clone();
+                            let timeout = self.timeout;
+                            let server = self.server.clone();
+                            Builder::new().spawn(move || {
+                                if let Err(error) =
+                                    accept_request(stream, on_request, timeout, server)
+                                {
+                                    eprintln!(
+                                        "OxHTTP TCP error when writing response to {}: {}",
+                                        peer, error
+                                    );
+                                }
+                            })
+                        } {
+                            eprintln!("OxHTTP thread spawn error: {}", error);
+                        }
                     }
                     Err(error) => {
                         eprintln!(
@@ -225,7 +231,7 @@ mod tests {
     use super::*;
     use crate::model::Status;
     use std::io::Read;
-    use std::thread::sleep;
+    use std::thread::{sleep, spawn};
 
     #[test]
     fn test_regular_http_operations() -> Result<()> {
