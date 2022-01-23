@@ -250,11 +250,7 @@ impl From<Status> for u16 {
 impl fmt::Display for Status {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(phrase) = self.reason_phrase() {
-            write!(f, "{} {}", self.0, phrase)
-        } else {
-            write!(f, "{}", self.0)
-        }
+        write!(f, "{} {}", self.0, self.reason_phrase().unwrap_or(""))
     }
 }
 

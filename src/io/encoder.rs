@@ -138,6 +138,7 @@ fn is_forbidden_name(header: &HeaderName) -> bool {
 mod tests {
     use super::*;
     use crate::model::{ChunkedTransferPayload, Headers, Method, Status};
+    use std::convert::TryFrom;
     use std::io::Cursor;
     use std::str;
 
@@ -241,6 +242,15 @@ mod tests {
             str::from_utf8(&buffer).unwrap(),
             "HTTP/1.1 404 Not Found\r\n\r\n"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn encode_response_custom_code() -> Result<()> {
+        let mut response = Response::builder(Status::try_from(499).unwrap()).build();
+        let mut buffer = Vec::new();
+        encode_response(&mut response, &mut buffer)?;
+        assert_eq!(str::from_utf8(&buffer).unwrap(), "HTTP/1.1 499 \r\n\r\n");
         Ok(())
     }
 
