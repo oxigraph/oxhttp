@@ -267,7 +267,7 @@ fn build_error(error: Error) -> Response {
 
 fn build_text_response(status: Status, text: String) -> Response {
     Response::builder(status)
-        .with_header(HeaderName::CONTENT_TYPE, "text/plain")
+        .with_header(HeaderName::CONTENT_TYPE, "text/plain; charset=utf-8")
         .unwrap()
         .with_body(text)
 }
@@ -309,7 +309,7 @@ mod tests {
         test_server(
             9998,
             ["GET / HTTP/1.1\nhost: localhost:9999\nfoo\n\n"],
-            ["HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain\r\nserver: OxHTTP/1.0\r\ncontent-length: 19\r\n\r\ninvalid header name"],
+            ["HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\nserver: OxHTTP/1.0\r\ncontent-length: 19\r\n\r\ninvalid header name"],
         )
     }
 
@@ -318,7 +318,7 @@ mod tests {
         test_server(
             9997,
             ["GET / HTTP/1.1\nhost: localhost:9999\nexpect: bad\n\n"],
-            ["HTTP/1.1 417 Expectation Failed\r\ncontent-type: text/plain\r\nserver: OxHTTP/1.0\r\ncontent-length: 43\r\n\r\nExpect header value 'bad' is not supported."],
+            ["HTTP/1.1 417 Expectation Failed\r\ncontent-type: text/plain; charset=utf-8\r\nserver: OxHTTP/1.0\r\ncontent-length: 43\r\n\r\nExpect header value 'bad' is not supported."],
         )
     }
 
