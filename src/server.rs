@@ -3,17 +3,24 @@ use crate::io::{decode_request_body, decode_request_headers};
 use crate::model::{
     HeaderName, HeaderValue, InvalidHeader, Request, RequestBuilder, Response, Status,
 };
+#[cfg(feature = "rayon")]
+use rayon_core::ThreadPoolBuilder;
 use std::convert::TryFrom;
 use std::io::{copy, sink, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
+#[cfg(not(feature = "rayon"))]
 use std::thread::Builder;
 use std::time::Duration;
 
 /// A simple HTTP server.
 ///
-/// Warning: It currently starts a new thread on each connection and keep them open while the client connection is not closed.
-/// Use it at our own risks! Use a reverse proxy in front of this server if you want to expose it publicly.
+/// It currently provides two threading approaches:
+/// - If the `rayon` feature is enabled a thread pool is used.
+///   The number of threads can be enabled with the [`Server::set_num_threads`] feature.
+///   By default 4 times the number of available logical cores is used.
+/// - If the `rayon` feature is not enabled, a new thread is started on each connection and keep while the client connection is not closed.
+///   Use it at our own risks!
 ///
 /// ```no_run
 /// use oxhttp::Server;
@@ -39,6 +46,8 @@ pub struct Server {
     on_request: Arc<dyn Fn(&mut Request) -> Response + Send + Sync + 'static>,
     timeout: Option<Duration>,
     server: Option<HeaderValue>,
+    #[cfg(feature = "rayon")]
+    num_threads: usize,
 }
 
 impl Server {
@@ -49,6 +58,8 @@ impl Server {
             on_request: Arc::new(on_request),
             timeout: None,
             server: None,
+            #[cfg(feature = "rayon")]
+            num_threads: num_cpus::get() * 4,
         }
     }
 
@@ -68,7 +79,56 @@ impl Server {
         self.timeout = Some(timeout);
     }
 
+    /// Sets that the server should use a thread pool with this number of threads.
+    #[cfg(feature = "rayon")]
+    #[inline]
+    pub fn set_num_threads(&mut self, num_threads: usize) {
+        self.num_threads = num_threads;
+    }
+
     /// Runs the server by listening to `address`.
+    #[cfg(feature = "rayon")]
+    pub fn listen(&self, address: impl ToSocketAddrs) -> Result<()> {
+        let thread_pool = ThreadPoolBuilder::new()
+            .num_threads(self.num_threads)
+            .thread_name(|i| format!("OxHTTP server thread {}", i))
+            .panic_handler(|error| eprintln!("Panic on OxHTTP server thread: {:?}", error))
+            .build()
+            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+        for stream in TcpListener::bind(address)?.incoming() {
+            match stream {
+                Ok(stream) => match stream.peer_addr() {
+                    Ok(peer) => {
+                        let on_request = self.on_request.clone();
+                        let timeout = self.timeout;
+                        let server = self.server.clone();
+                        thread_pool.spawn(move || {
+                            if let Err(error) = accept_request(stream, on_request, timeout, server)
+                            {
+                                eprintln!(
+                                    "OxHTTP TCP error when writing response to {}: {}",
+                                    peer, error
+                                );
+                            }
+                        })
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "OxHTTP TCP error when attempting to get the peer address: {}",
+                            error
+                        );
+                    }
+                },
+                Err(error) => {
+                    eprintln!("OxHTTP TCP error when opening stream: {}", error);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Runs the server by listening to `address`.
+    #[cfg(not(feature = "rayon"))]
     pub fn listen(&self, address: impl ToSocketAddrs) -> Result<()> {
         for stream in TcpListener::bind(address)?.incoming() {
             match stream {
@@ -279,7 +339,7 @@ mod tests {
             server.set_global_timeout(Duration::from_secs(1));
             server.listen(("localhost", port)).unwrap();
         });
-        sleep(Duration::from_millis(10)); // Makes sure the server is up
+        sleep(Duration::from_millis(100)); // Makes sure the server is up
         let mut stream = TcpStream::connect(("localhost", port))?;
         for (request, response) in requests.into_iter().zip(responses) {
             stream.write_all(request.as_bytes())?;
