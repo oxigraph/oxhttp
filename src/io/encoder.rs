@@ -93,9 +93,10 @@ fn encode_body(body: &mut Body, writer: &mut impl Write) -> Result<()> {
             }
             write!(writer, "{:X}\r\n", read)?;
             writer.write_all(&buffer[..read])?;
-            write!(writer, "\r\n")?;
             if read == 0 {
                 break; // Done
+            } else {
+                write!(writer, "\r\n")?;
             }
         }
         if let Some(trailers) = body.trailers() {
@@ -213,7 +214,7 @@ mod tests {
         encode_request(&mut request, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
-            "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\ntransfer-encoding: chunked\r\n\r\nC\r\ntestbodybody\r\n0\r\n\r\ncontent-language: foo\r\n\r\n"
+            "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\ntransfer-encoding: chunked\r\n\r\nC\r\ntestbodybody\r\n0\r\ncontent-language: foo\r\n\r\n"
         );
         Ok(())
     }
