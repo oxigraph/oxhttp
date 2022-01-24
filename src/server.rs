@@ -17,9 +17,9 @@ use std::time::Duration;
 ///
 /// It currently provides two threading approaches:
 /// - If the `rayon` feature is enabled a thread pool is used.
-///   The number of threads can be enabled with the [`Server::set_num_threads`] feature.
+///   The number of threads can be set with the [`Server::set_num_threads`] feature.
 ///   By default 4 times the number of available logical cores is used.
-/// - If the `rayon` feature is not enabled, a new thread is started on each connection and keep while the client connection is not closed.
+/// - If the `rayon` feature is not enabled, a new thread is started on each connection and kept while the client connection is not closed.
 ///   Use it at our own risks!
 ///
 /// ```no_run
