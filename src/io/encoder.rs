@@ -1,4 +1,4 @@
-use crate::model::{Body, HeaderName, Request, Response};
+use crate::model::{Body, HeaderName, Headers, Request, Response};
 use crate::utils::invalid_input_error;
 use std::io::{copy, Read, Result, Write};
 
@@ -38,13 +38,7 @@ pub fn encode_request(request: &mut Request, mut writer: impl Write) -> Result<(
     }
 
     // headers
-    for (name, value) in request.headers() {
-        if !is_forbidden_name(name) {
-            write!(writer, "{}: ", name)?;
-            writer.write_all(value)?;
-            write!(writer, "\r\n")?;
-        }
-    }
+    encode_headers(request.headers(), &mut writer)?;
 
     // body with content-length if existing
     encode_body(request.body_mut(), &mut writer)?;
@@ -54,20 +48,20 @@ pub fn encode_request(request: &mut Request, mut writer: impl Write) -> Result<(
 
 pub fn encode_response(response: &mut Response, mut writer: impl Write) -> Result<()> {
     write!(&mut writer, "HTTP/1.1 {}\r\n", response.status())?;
+    encode_headers(response.headers(), &mut writer)?;
+    encode_body(response.body_mut(), &mut writer)?;
+    writer.flush()
+}
 
-    // headers
-    for (name, value) in response.headers() {
+fn encode_headers(headers: &Headers, writer: &mut impl Write) -> Result<()> {
+    for (name, value) in headers {
         if !is_forbidden_name(name) {
             write!(writer, "{}: ", name)?;
             writer.write_all(value)?;
             write!(writer, "\r\n")?;
         }
     }
-
-    // body with content-length if existing
-    encode_body(response.body_mut(), &mut writer)?;
-
-    writer.flush()
+    Ok(())
 }
 
 fn encode_body(body: &mut Body, writer: &mut impl Write) -> Result<()> {
@@ -100,13 +94,7 @@ fn encode_body(body: &mut Body, writer: &mut impl Write) -> Result<()> {
             }
         }
         if let Some(trailers) = body.trailers() {
-            for (name, value) in trailers {
-                if !is_forbidden_name(name) {
-                    write!(writer, "{}: ", name)?;
-                    writer.write_all(value)?;
-                    write!(writer, "\r\n")?;
-                }
-            }
+            encode_headers(trailers, writer)?;
         }
         write!(writer, "\r\n")?;
     }
