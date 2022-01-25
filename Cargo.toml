@@ -23,3 +23,6 @@ url = "2"
 [features]
 rustls = ["rustls-crate", "rustls-native-certs"]
 rayon = ["rayon-core", "num_cpus"]
+
+[package.metadata.docs.rs]
+all-features = true
