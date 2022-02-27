@@ -5,6 +5,8 @@ use crate::model::{
     HeaderName, HeaderValue, InvalidHeader, Method, Request, Response, Status, Url,
 };
 use crate::utils::{invalid_data_error, invalid_input_error};
+#[cfg(any(feature = "native-tls", feature = "rustls"))]
+use lazy_static::lazy_static;
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
 #[cfg(feature = "rustls")]
@@ -15,8 +17,39 @@ use std::convert::TryFrom;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{SocketAddr, TcpStream};
 #[cfg(any(feature = "native-tls", feature = "rustls"))]
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
+
+#[cfg(feature = "rustls")]
+lazy_static! {
+    static ref RUSTLS_CONFIG: Arc<ClientConfig> = {
+        let mut root_store = RootCertStore::empty();
+        match load_native_certs() {
+            Ok(certs) => {
+                for cert in certs {
+                    root_store.add_parsable_certificates(&[cert.0]);
+                }
+            }
+            Err(e) => panic!("Error loading TLS certificates: {}", e),
+        }
+        Arc::new(
+            ClientConfig::builder()
+                .with_safe_defaults()
+                .with_root_certificates(root_store)
+                .with_no_client_auth(),
+        )
+    };
+}
+
+#[cfg(feature = "native-tls")]
+lazy_static! {
+    static ref TLS_CONNECTOR: TlsConnector = {
+        match TlsConnector::new() {
+            Ok(connector) => connector,
+            Err(e) => panic!("Error while loading TLS configuration: {}", e),
+        }
+    };
+}
 
 /// A simple HTTP client.
 ///
@@ -45,10 +78,6 @@ pub struct Client {
     timeout: Option<Duration>,
     user_agent: Option<HeaderValue>,
     redirection_limit: usize,
-    #[cfg(feature = "native-tls")]
-    tls_connector: Mutex<Option<Arc<TlsConnector>>>,
-    #[cfg(feature = "rustls")]
-    rustls_config: Mutex<Option<Arc<ClientConfig>>>,
 }
 
 impl Client {
@@ -153,22 +182,9 @@ impl Client {
             "https" => {
                 #[cfg(feature = "native-tls")]
                 {
-                    let connector = {
-                        let mut current_connector = self.tls_connector.lock().unwrap();
-                        if let Some(connector) = &*current_connector {
-                            connector.clone()
-                        } else {
-                            let connector =
-                                TlsConnector::new().map_err(|e| Error::new(ErrorKind::Other, e))?;
-                            let connector = Arc::new(connector);
-                            *current_connector = Some(connector.clone());
-                            connector
-                        }
-                    };
-
                     let addresses = get_and_validate_socket_addresses(request.url(), 443)?;
                     let stream = self.connect(&addresses)?;
-                    let mut stream = connector
+                    let mut stream = TLS_CONNECTOR
                         .connect(host, stream)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
                     encode_request(request, BufWriter::new(&mut stream))?;
@@ -176,28 +192,9 @@ impl Client {
                 }
                 #[cfg(feature = "rustls")]
                 {
-                    let config = {
-                        let mut current_config = self.rustls_config.lock().unwrap();
-                        if let Some(config) = &*current_config {
-                            config.clone()
-                        } else {
-                            let mut root_store = RootCertStore::empty();
-                            for cert in load_native_certs()? {
-                                root_store.add_parsable_certificates(&[cert.0]);
-                            }
-                            let config = ClientConfig::builder()
-                                .with_safe_defaults()
-                                .with_root_certificates(root_store)
-                                .with_no_client_auth();
-                            let config = Arc::new(config);
-                            *current_config = Some(config.clone());
-                            config
-                        }
-                    };
-
                     let addresses = get_and_validate_socket_addresses(request.url(), 443)?;
                     let dns_name = ServerName::try_from(host).map_err(invalid_input_error)?;
-                    let connection = ClientConnection::new(config, dns_name)
+                    let connection = ClientConnection::new(RUSTLS_CONFIG.clone(), dns_name)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
                     let mut stream = StreamOwned::new(connection, self.connect(&addresses)?);
                     encode_request(request, BufWriter::new(&mut stream))?;
