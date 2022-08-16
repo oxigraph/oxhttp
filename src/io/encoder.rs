@@ -1,4 +1,4 @@
-use crate::model::{Body, HeaderName, Headers, Request, Response};
+use crate::model::{Body, HeaderName, Headers, Method, Request, Response, Status};
 use crate::utils::invalid_input_error;
 use std::io::{copy, Read, Result, Write};
 
@@ -41,7 +41,8 @@ pub fn encode_request(request: &mut Request, mut writer: impl Write) -> Result<(
     encode_headers(request.headers(), &mut writer)?;
 
     // body with content-length if existing
-    encode_body(request.body_mut(), &mut writer)?;
+    let must_include_body = does_request_must_include_body(request.method());
+    encode_body(request.body_mut(), &mut writer, must_include_body)?;
 
     writer.flush()
 }
@@ -49,7 +50,8 @@ pub fn encode_request(request: &mut Request, mut writer: impl Write) -> Result<(
 pub fn encode_response(response: &mut Response, mut writer: impl Write) -> Result<()> {
     write!(&mut writer, "HTTP/1.1 {}\r\n", response.status())?;
     encode_headers(response.headers(), &mut writer)?;
-    encode_body(response.body_mut(), &mut writer)?;
+    let must_include_body = does_response_must_include_body(response.status());
+    encode_body(response.body_mut(), &mut writer, must_include_body)?;
     writer.flush()
 }
 
@@ -64,9 +66,9 @@ fn encode_headers(headers: &Headers, writer: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
-fn encode_body(body: &mut Body, writer: &mut impl Write) -> Result<()> {
+fn encode_body(body: &mut Body, writer: &mut impl Write, must_include_body: bool) -> Result<()> {
     if let Some(length) = body.len() {
-        if length > 0 {
+        if must_include_body || length > 0 {
             write!(writer, "content-length: {}\r\n\r\n", length)?;
             copy(body, writer)?;
         } else {
@@ -121,6 +123,14 @@ fn is_forbidden_name(header: &HeaderName) -> bool {
         || *header == HeaderName::TRANSFER_ENCODING
         || *header == HeaderName::UPGRADE
         || *header == HeaderName::VIA
+}
+
+fn does_request_must_include_body(method: &Method) -> bool {
+    *method == Method::POST || *method == Method::PUT
+}
+
+fn does_response_must_include_body(status: Status) -> bool {
+    !(status.is_informational() || status == Status::NO_CONTENT || status == Status::NOT_MODIFIED)
 }
 
 #[cfg(test)]
@@ -186,6 +196,22 @@ mod tests {
     }
 
     #[test]
+    fn encode_post_request_without_body() -> Result<()> {
+        let mut request = Request::builder(
+            Method::POST,
+            "http://example.com/foo/bar?query#fragment".parse().unwrap(),
+        )
+        .build();
+        let mut buffer = Vec::new();
+        encode_request(&mut request, &mut buffer)?;
+        assert_eq!(
+            str::from_utf8(&buffer).unwrap(),
+            "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\ncontent-length: 0\r\n\r\n"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn encode_post_request_with_chunked() -> Result<()> {
         let mut trailers = Headers::new();
         trailers.append(HeaderName::CONTENT_LANGUAGE, "foo".parse().unwrap());
@@ -229,7 +255,7 @@ mod tests {
         encode_response(&mut response, &mut buffer)?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
-            "HTTP/1.1 404 Not Found\r\n\r\n"
+            "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n"
         );
         Ok(())
     }
@@ -239,7 +265,10 @@ mod tests {
         let mut response = Response::builder(Status::try_from(499).unwrap()).build();
         let mut buffer = Vec::new();
         encode_response(&mut response, &mut buffer)?;
-        assert_eq!(str::from_utf8(&buffer).unwrap(), "HTTP/1.1 499 \r\n\r\n");
+        assert_eq!(
+            str::from_utf8(&buffer).unwrap(),
+            "HTTP/1.1 499 \r\ncontent-length: 0\r\n\r\n"
+        );
         Ok(())
     }
 
