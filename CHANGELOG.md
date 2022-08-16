@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5] - 2022-08-16
+
+### Changed
+- A body is now always written on POST and PUT request and on response that have not the status 1xx, 204 and 304.
+  This allows clients to not wait for an existing body in case the connection is kept alive.
+- The TLS configuration is now initialized once and shared between clients and saved during the complete process lifetime.
+
+
 ## [0.1.4] - 2022-01-24
 
 ### Added
