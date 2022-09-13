@@ -1,3 +1,4 @@
+use crate::model::header::IntoHeaderName;
 use crate::model::{Body, HeaderName, HeaderValue, Headers, InvalidHeader, Status};
 use std::convert::TryInto;
 
@@ -8,6 +9,7 @@ use std::convert::TryInto;
 ///
 /// let response = Response::builder(Status::OK)
 ///     .with_header(HeaderName::CONTENT_TYPE, "application/json")?
+///     .with_header("X-Custom", "foo")?
 ///     .with_body("{\"foo\": \"bar\"}");
 ///
 /// assert_eq!(response.status(), Status::OK);
@@ -54,10 +56,11 @@ impl Response {
     #[inline]
     pub fn append_header(
         &mut self,
-        name: HeaderName,
+        name: impl IntoHeaderName,
         value: impl TryInto<HeaderValue, Error = InvalidHeader>,
     ) -> Result<(), InvalidHeader> {
-        self.headers_mut().append(name, value.try_into()?);
+        self.headers_mut()
+            .append(name.try_into()?, value.try_into()?);
         Ok(())
     }
 
@@ -107,10 +110,11 @@ impl ResponseBuilder {
     #[inline]
     pub fn with_header(
         mut self,
-        name: HeaderName,
+        name: impl IntoHeaderName,
         value: impl TryInto<HeaderValue, Error = InvalidHeader>,
     ) -> Result<Self, InvalidHeader> {
-        self.headers_mut().append(name, value.try_into()?);
+        self.headers_mut()
+            .append(name.try_into()?, value.try_into()?);
         Ok(self)
     }
 

@@ -243,7 +243,7 @@ impl FromStr for HeaderName {
 
     #[inline]
     fn from_str(name: &str) -> Result<Self, InvalidHeader> {
-        name.to_owned().try_into()
+        Self::try_from(name)
     }
 }
 
@@ -252,7 +252,7 @@ impl TryFrom<&str> for HeaderName {
 
     #[inline]
     fn try_from(value: &str) -> Result<Self, InvalidHeader> {
-        value.to_owned().try_into()
+        Self::try_from(value.to_owned())
     }
 }
 
@@ -285,6 +285,24 @@ impl fmt::Display for HeaderName {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+pub trait IntoHeaderName {
+    fn try_into(self) -> Result<HeaderName, InvalidHeader>;
+}
+
+impl IntoHeaderName for HeaderName {
+    #[inline]
+    fn try_into(self) -> Result<HeaderName, InvalidHeader> {
+        Ok(self)
+    }
+}
+
+impl<T: TryInto<HeaderName, Error = InvalidHeader>> IntoHeaderName for T {
+    #[inline]
+    fn try_into(self) -> Result<HeaderName, InvalidHeader> {
+        self.try_into()
     }
 }
 
@@ -339,7 +357,7 @@ impl FromStr for HeaderValue {
 
     #[inline]
     fn from_str(value: &str) -> Result<Self, InvalidHeader> {
-        value.to_owned().try_into()
+        Self::try_from(value)
     }
 }
 
@@ -348,7 +366,7 @@ impl TryFrom<&str> for HeaderValue {
 
     #[inline]
     fn try_from(value: &str) -> Result<Self, InvalidHeader> {
-        value.to_owned().try_into()
+        Self::try_from(value.to_owned())
     }
 }
 
@@ -357,7 +375,7 @@ impl TryFrom<String> for HeaderValue {
 
     #[inline]
     fn try_from(value: String) -> Result<Self, InvalidHeader> {
-        value.into_bytes().try_into()
+        Self::try_from(value.into_bytes())
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::model::header::IntoHeaderName;
 use crate::model::{Body, HeaderName, HeaderValue, Headers, InvalidHeader, Method, Url};
 use std::convert::TryInto;
 
@@ -62,10 +63,11 @@ impl Request {
     #[inline]
     pub fn append_header(
         &mut self,
-        name: HeaderName,
+        name: impl IntoHeaderName,
         value: impl TryInto<HeaderValue, Error = InvalidHeader>,
     ) -> Result<(), InvalidHeader> {
-        self.headers_mut().append(name, value.try_into()?);
+        self.headers_mut()
+            .append(name.try_into()?, value.try_into()?);
         Ok(())
     }
 
@@ -121,10 +123,11 @@ impl RequestBuilder {
     #[inline]
     pub fn with_header(
         mut self,
-        name: HeaderName,
+        name: impl IntoHeaderName,
         value: impl TryInto<HeaderValue, Error = InvalidHeader>,
     ) -> Result<Self, InvalidHeader> {
-        self.headers_mut().append(name, value.try_into()?);
+        self.headers_mut()
+            .append(name.try_into()?, value.try_into()?);
         Ok(self)
     }
 
