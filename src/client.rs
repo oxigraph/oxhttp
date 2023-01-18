@@ -16,7 +16,7 @@ use rustls_native_certs::load_native_certs;
 use std::convert::TryFrom;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{SocketAddr, TcpStream};
-#[cfg(any(feature = "native-tls", feature = "rustls"))]
+#[cfg(feature = "rustls")]
 use std::sync::Arc;
 use std::time::Duration;
 

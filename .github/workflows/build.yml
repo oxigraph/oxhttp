@@ -4,32 +4,40 @@ on: [push, pull_request]
 
 jobs:
   fmt:
-    name: fmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - run: rustup update
-      - run: rustup component add rustfmt
+      - run: rustup update && rustup component add rustfmt
       - run: cargo fmt -- --check
 
   clippy:
-    name: clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - run: rustup update
-      - run: rustup component add clippy
+      - run: rustup update && rustup component add clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets
       - run: cargo clippy --all-targets --features native-tls
       - run: cargo clippy --all-targets --features rustls
       - run: cargo clippy --all-targets --features rayon
+
+  clippy_msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: rustup update && rustup override set 1.58.0 && rustup component add clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets -- -D warnings -D clippy::all
+      - run: cargo clippy --all-targets --features native-tls -- -D warnings -D clippy::all
+      - run: cargo clippy --all-targets --features rustls -- -D warnings -D clippy::all
+      - run: cargo clippy --all-targets --features rayon -- -D warnings -D clippy::all
 
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - run: rustup update
-      - run: cargo build
+      - uses: Swatinem/rust-cache@v2
       - run: cargo test --verbose --all-targets
       - run: cargo test --verbose --all-targets --features native-tls
       - run: cargo test --verbose --all-targets --features rustls
