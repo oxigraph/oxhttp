@@ -142,8 +142,7 @@ impl fmt::Display for InvalidMethod {
             InvalidMethodAlt::Empty => f.write_str("HTTP methods should not be empty"),
             InvalidMethodAlt::InvalidChar { name, invalid_char } => write!(
                 f,
-                "The character '{}' is not valid inside of HTTP method '{}'",
-                invalid_char, name
+                "The character '{invalid_char}' is not valid inside of HTTP method '{name}'"
             ),
         }
     }

@@ -32,9 +32,9 @@ pub fn encode_request(request: &mut Request, mut writer: impl Write) -> Result<(
 
     // host
     if let Some(port) = request.url().port() {
-        write!(writer, "host: {}:{}\r\n", host, port)?;
+        write!(writer, "host: {host}:{port}\r\n")?;
     } else {
-        write!(writer, "host: {}\r\n", host)?;
+        write!(writer, "host: {host}\r\n")?;
     }
 
     // headers
@@ -58,7 +58,7 @@ pub fn encode_response(response: &mut Response, mut writer: impl Write) -> Resul
 fn encode_headers(headers: &Headers, writer: &mut impl Write) -> Result<()> {
     for (name, value) in headers {
         if !is_forbidden_name(name) {
-            write!(writer, "{}: ", name)?;
+            write!(writer, "{name}: ")?;
             writer.write_all(value)?;
             write!(writer, "\r\n")?;
         }
@@ -69,7 +69,7 @@ fn encode_headers(headers: &Headers, writer: &mut impl Write) -> Result<()> {
 fn encode_body(body: &mut Body, writer: &mut impl Write, must_include_body: bool) -> Result<()> {
     if let Some(length) = body.len() {
         if must_include_body || length > 0 {
-            write!(writer, "content-length: {}\r\n\r\n", length)?;
+            write!(writer, "content-length: {length}\r\n\r\n")?;
             copy(body, writer)?;
         } else {
             write!(writer, "\r\n")?;
@@ -87,7 +87,7 @@ fn encode_body(body: &mut Body, writer: &mut impl Write, must_include_body: bool
                 }
                 read += new_read;
             }
-            write!(writer, "{:X}\r\n", read)?;
+            write!(writer, "{read:X}\r\n")?;
             writer.write_all(&buffer[..read])?;
             if read == 0 {
                 break; // Done

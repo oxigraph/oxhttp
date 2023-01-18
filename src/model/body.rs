@@ -127,7 +127,7 @@ impl Read for Body {
                 *consumed_len += u64::try_from(additional).unwrap();
                 if additional == 0 && consumed_len != total_len {
                     // We check we do not miss some bytes
-                    return Err(Error::new(ErrorKind::ConnectionAborted, format!("The body was expected to contain {} bytes but we have been able to only read {}", total_len, consumed_len)));
+                    return Err(Error::new(ErrorKind::ConnectionAborted, format!("The body was expected to contain {total_len} bytes but we have been able to only read {consumed_len}")));
                 }
                 Ok(additional)
             }

@@ -91,8 +91,8 @@ impl Server {
     pub fn listen(&self, address: impl ToSocketAddrs) -> Result<()> {
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(self.num_threads)
-            .thread_name(|i| format!("OxHTTP server thread {}", i))
-            .panic_handler(|error| eprintln!("Panic on OxHTTP server thread: {:?}", error))
+            .thread_name(|i| format!("OxHTTP server thread {i}"))
+            .panic_handler(|error| eprintln!("Panic on OxHTTP server thread: {error:?}"))
             .build()
             .map_err(|e| Error::new(ErrorKind::Other, e))?;
         for stream in TcpListener::bind(address)?.incoming() {
@@ -106,21 +106,19 @@ impl Server {
                             if let Err(error) = accept_request(stream, on_request, timeout, server)
                             {
                                 eprintln!(
-                                    "OxHTTP TCP error when writing response to {}: {}",
-                                    peer, error
+                                    "OxHTTP TCP error when writing response to {peer}: {error}"
                                 );
                             }
                         })
                     }
                     Err(error) => {
                         eprintln!(
-                            "OxHTTP TCP error when attempting to get the peer address: {}",
-                            error
+                            "OxHTTP TCP error when attempting to get the peer address: {error}"
                         );
                     }
                 },
                 Err(error) => {
-                    eprintln!("OxHTTP TCP error when opening stream: {}", error);
+                    eprintln!("OxHTTP TCP error when opening stream: {error}");
                 }
             }
         }
@@ -144,24 +142,22 @@ impl Server {
                                     accept_request(stream, on_request, timeout, server)
                                 {
                                     eprintln!(
-                                        "OxHTTP TCP error when writing response to {}: {}",
-                                        peer, error
+                                        "OxHTTP TCP error when writing response to {peer}: {error}"
                                     );
                                 }
                             })
                         } {
-                            eprintln!("OxHTTP thread spawn error: {}", error);
+                            eprintln!("OxHTTP thread spawn error: {error}");
                         }
                     }
                     Err(error) => {
                         eprintln!(
-                            "OxHTTP TCP error when attempting to get the peer address: {}",
-                            error
+                            "OxHTTP TCP error when attempting to get the peer address: {error}"
                         );
                     }
                 },
                 Err(error) => {
-                    eprintln!("OxHTTP TCP error when opening stream: {}", error);
+                    eprintln!("OxHTTP TCP error when opening stream: {error}");
                 }
             }
         }

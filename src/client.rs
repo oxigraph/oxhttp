@@ -133,8 +133,7 @@ impl Client {
                 let location = location.to_str().map_err(invalid_data_error)?;
                 let new_url = request.url().join(location).map_err(|e| {
                     invalid_data_error(format!(
-                        "Invalid URL in Location header raising error {}: {}",
-                        e, location
+                        "Invalid URL in Location header raising error {e}: {location}"
                     ))
                 })?;
                 let mut request_builder = Request::builder(new_method, new_url);

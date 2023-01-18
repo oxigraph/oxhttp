@@ -48,25 +48,24 @@ pub fn decode_request_headers(
         }
     }) {
         let host = str::from_utf8(host)
-            .map_err(|e| invalid_data_error(format!("Invalid host header value: {}", e)))?;
+            .map_err(|e| invalid_data_error(format!("Invalid host header value: {e}")))?;
         let base_url = Url::parse(&if is_connection_secure {
-            format!("https://{}", host)
+            format!("https://{host}")
         } else {
-            format!("http://{}", host)
+            format!("http://{host}")
         })
-        .map_err(|e| invalid_data_error(format!("Invalid host header value '{}': {}", host, e)))?;
+        .map_err(|e| invalid_data_error(format!("Invalid host header value '{host}': {e}")))?;
         if path == "*" {
             base_url
         } else {
-            base_url.join(path).map_err(|e| {
-                invalid_data_error(format!("Invalid request path '{}': {}", path, e))
-            })?
+            base_url
+                .join(path)
+                .map_err(|e| invalid_data_error(format!("Invalid request path '{path}': {e}")))?
         }
     } else {
         Url::parse(path).map_err(|e| {
             invalid_data_error(format!(
-                "No host header in HTTP request and not absolute path '{}': {}",
-                path, e
+                "No host header in HTTP request and not absolute path '{path}': {e}"
             ))
         })?
     };
@@ -203,8 +202,7 @@ fn decode_body(headers: &Headers, reader: impl BufRead + 'static) -> Result<Body
             })
         } else {
             return Err(invalid_data_error(format!(
-                "Transfer-Encoding: {} is not supported",
-                transfer_encoding
+                "Transfer-Encoding: {transfer_encoding} is not supported"
             )));
         }
     } else {

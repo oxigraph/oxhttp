@@ -521,8 +521,7 @@ impl fmt::Display for InvalidHeader {
             InvalidHeaderAlt::EmptyName => f.write_str("header names should not be empty"),
             InvalidHeaderAlt::InvalidNameChar { name, invalid_char } => write!(
                 f,
-                "The character '{}' is not valid inside of header name '{}'",
-                invalid_char, name
+                "The character '{invalid_char}' is not valid inside of header name '{name}'"
             ),
             InvalidHeaderAlt::InvalidValueByte {
                 value,
