@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_regular_http_operations() -> Result<()> {
-        test_server(9999, [
+        test_server(("localhost", 9999), [
             "GET / HTTP/1.1\nhost: localhost:9999\n\n",
             "POST /foo HTTP/1.1\nhost: localhost:9999\nexpect: 100-continue\nconnection:close\ncontent-length:4\n\nabcd",
         ], [
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn test_bad_request() -> Result<()> {
         test_server(
-            9998,
+            ("::1", 9998),
             ["GET / HTTP/1.1\nhost: localhost:9999\nfoo\n\n"],
             ["HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\nserver: OxHTTP/1.0\r\ncontent-length: 19\r\n\r\ninvalid header name"],
         )
@@ -312,14 +312,14 @@ mod tests {
     #[test]
     fn test_bad_expect() -> Result<()> {
         test_server(
-            9997,
+            ("127.0.0.1", 9997),
             ["GET / HTTP/1.1\nhost: localhost:9999\nexpect: bad\n\n"],
             ["HTTP/1.1 417 Expectation Failed\r\ncontent-type: text/plain; charset=utf-8\r\nserver: OxHTTP/1.0\r\ncontent-length: 43\r\n\r\nExpect header value 'bad' is not supported."],
         )
     }
 
     fn test_server(
-        port: u16,
+        address: (&'static str, u16),
         requests: impl IntoIterator<Item = &'static str>,
         responses: impl IntoIterator<Item = &'static str>,
     ) -> Result<()> {
@@ -333,10 +333,10 @@ mod tests {
             });
             server.set_server_name("OxHTTP/1.0").unwrap();
             server.set_global_timeout(Duration::from_secs(1));
-            server.listen(("localhost", port)).unwrap();
+            server.listen(address).unwrap();
         });
         sleep(Duration::from_millis(100)); // Makes sure the server is up
-        let mut stream = TcpStream::connect(("localhost", port))?;
+        let mut stream = TcpStream::connect(address)?;
         for (request, response) in requests.into_iter().zip(responses) {
             stream.write_all(request.as_bytes())?;
             let mut output = vec![b'\0'; response.len()];
