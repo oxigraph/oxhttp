@@ -95,73 +95,119 @@ impl Server {
             .panic_handler(|error| eprintln!("Panic on OxHTTP server thread: {error:?}"))
             .build()
             .map_err(|e| Error::new(ErrorKind::Other, e))?;
-        for stream in TcpListener::bind(address)?.incoming() {
-            match stream {
-                Ok(stream) => match stream.peer_addr() {
-                    Ok(peer) => {
-                        let on_request = self.on_request.clone();
-                        let timeout = self.timeout;
-                        let server = self.server.clone();
-                        thread_pool.spawn(move || {
-                            if let Err(error) = accept_request(stream, on_request, timeout, server)
-                            {
-                                eprintln!(
-                                    "OxHTTP TCP error when writing response to {peer}: {error}"
-                                );
-                            }
-                        })
-                    }
-                    Err(error) => {
-                        eprintln!(
-                            "OxHTTP TCP error when attempting to get the peer address: {error}"
-                        );
-                    }
-                },
-                Err(error) => {
-                    eprintln!("OxHTTP TCP error when opening stream: {error}");
-                }
-            }
+        let listeners = open_tcp(address)?;
+        if self.num_threads < listeners.len() + 1 {
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("The thread pool only provides {} threads whereas the server is listening to {} connections. There are not enough threads for the server to work properly.", self.num_threads, listeners.len()),
+            ));
         }
+        thread_pool.scope(|p| {
+            for listener in listeners {
+                p.spawn(move |p| {
+                    for stream in listener.incoming() {
+                        match stream {
+                            Ok(stream) => {
+                                let on_request = self.on_request.clone();
+                                let timeout = self.timeout;
+                                let server = self.server.clone();
+                                p.spawn(move |_| {
+                                    let peer = match stream.peer_addr() {
+                                        Ok(peer) => peer,
+                                        Err(error) => {
+                                            eprintln!("OxHTTP TCP error when attempting to get the peer address: {error}");
+                                            return;
+                                        }
+                                    };
+                                    if let Err(error) = accept_request(stream, on_request, timeout, server)
+                                    {
+                                        eprintln!(
+                                            "OxHTTP TCP error when writing response to {peer}: {error}"
+                                        );
+                                    }
+                                })
+                            },
+                            Err(error) => {
+                                eprintln!("OxHTTP TCP error when opening stream: {error}");
+                            }
+                        }
+                    }
+                })
+            }
+        });
         Ok(())
     }
 
     /// Runs the server by listening to `address`.
     #[cfg(not(feature = "rayon"))]
     pub fn listen(&self, address: impl ToSocketAddrs) -> Result<()> {
-        for stream in TcpListener::bind(address)?.incoming() {
-            match stream {
-                Ok(stream) => match stream.peer_addr() {
-                    Ok(peer) => {
-                        while let Err(error) = {
-                            let stream = stream.try_clone()?;
-                            let on_request = self.on_request.clone();
-                            let timeout = self.timeout;
-                            let server = self.server.clone();
-                            Builder::new().spawn(move || {
-                                if let Err(error) =
-                                    accept_request(stream, on_request, timeout, server)
-                                {
-                                    eprintln!(
-                                        "OxHTTP TCP error when writing response to {peer}: {error}"
-                                    );
+        // TODO: use scope?
+        let timeout = self.timeout;
+        let threads = open_tcp(address)?
+            .into_iter()
+            .map(|listener| {
+                let on_request = self.on_request.clone();
+                let server = self.server.clone();
+                Builder::new().name(format!("Thread listening to {}", listener.local_addr()?)).spawn(move || {
+                    for stream in listener.incoming() {
+                        match stream {
+                            Ok(stream) => {
+                                let on_request = on_request.clone();
+                                let server = server.clone();
+                                if let Err(error) =  Builder::new().spawn(move || {
+                                    let peer = match stream.peer_addr() {
+                                        Ok(peer) => peer,
+                                        Err(error) => {
+                                            eprintln!("OxHTTP TCP error when attempting to get the peer address: {error}");
+                                            return;
+                                        }
+                                    };
+                                    if let Err(error) =
+                                        accept_request(stream, on_request, timeout, server)
+                                    {
+                                        eprintln!(
+                                            "OxHTTP TCP error when writing response to {peer}: {error}"
+                                        )
+                                    }
+                                }) {
+                                    eprintln!("OxHTTP thread spawn error: {error}");
                                 }
-                            })
-                        } {
-                            eprintln!("OxHTTP thread spawn error: {error}");
+                            }
+                            Err(error) => {
+                                eprintln!("OxHTTP TCP error when opening stream: {error}");
+                            }
                         }
                     }
-                    Err(error) => {
-                        eprintln!(
-                            "OxHTTP TCP error when attempting to get the peer address: {error}"
-                        );
-                    }
-                },
-                Err(error) => {
-                    eprintln!("OxHTTP TCP error when opening stream: {error}");
-                }
-            }
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        for thread in threads {
+            thread
+                .join()
+                .map_err(|_| Error::new(ErrorKind::Other, "The server thread panicked"))?;
         }
         Ok(())
+    }
+}
+
+fn open_tcp(address: impl ToSocketAddrs) -> Result<Vec<TcpListener>> {
+    let mut listeners = Vec::new();
+    let mut last_error = None;
+    for address in address.to_socket_addrs()? {
+        match TcpListener::bind(address) {
+            Ok(listener) => listeners.push(listener),
+            Err(e) => last_error = Some(e),
+        }
+    }
+    if listeners.is_empty() {
+        Err(last_error.unwrap_or_else(|| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                "could not resolve to any addresses",
+            )
+        }))
+    } else {
+        Ok(listeners)
     }
 }
 
@@ -291,7 +337,7 @@ mod tests {
 
     #[test]
     fn test_regular_http_operations() -> Result<()> {
-        test_server(("localhost", 9999), [
+        test_server("localhost", 9999, [
             "GET / HTTP/1.1\nhost: localhost:9999\n\n",
             "POST /foo HTTP/1.1\nhost: localhost:9999\nexpect: 100-continue\nconnection:close\ncontent-length:4\n\nabcd",
         ], [
@@ -303,7 +349,7 @@ mod tests {
     #[test]
     fn test_bad_request() -> Result<()> {
         test_server(
-            ("::1", 9998),
+            "::1", 9998,
             ["GET / HTTP/1.1\nhost: localhost:9999\nfoo\n\n"],
             ["HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\nserver: OxHTTP/1.0\r\ncontent-length: 19\r\n\r\ninvalid header name"],
         )
@@ -312,14 +358,15 @@ mod tests {
     #[test]
     fn test_bad_expect() -> Result<()> {
         test_server(
-            ("127.0.0.1", 9997),
+            "127.0.0.1", 9997,
             ["GET / HTTP/1.1\nhost: localhost:9999\nexpect: bad\n\n"],
             ["HTTP/1.1 417 Expectation Failed\r\ncontent-type: text/plain; charset=utf-8\r\nserver: OxHTTP/1.0\r\ncontent-length: 43\r\n\r\nExpect header value 'bad' is not supported."],
         )
     }
 
     fn test_server(
-        address: (&'static str, u16),
+        request_host: &'static str,
+        server_port: u16,
         requests: impl IntoIterator<Item = &'static str>,
         responses: impl IntoIterator<Item = &'static str>,
     ) -> Result<()> {
@@ -333,10 +380,10 @@ mod tests {
             });
             server.set_server_name("OxHTTP/1.0").unwrap();
             server.set_global_timeout(Duration::from_secs(1));
-            server.listen(address).unwrap();
+            server.listen(("localhost", server_port)).unwrap();
         });
         sleep(Duration::from_millis(100)); // Makes sure the server is up
-        let mut stream = TcpStream::connect(address)?;
+        let mut stream = TcpStream::connect((request_host, server_port))?;
         for (request, response) in requests.into_iter().zip(responses) {
             stream.write_all(request.as_bytes())?;
             let mut output = vec![b'\0'; response.len()];
