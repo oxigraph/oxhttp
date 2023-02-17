@@ -259,11 +259,11 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
                 httparse::parse_chunk_size(&self.buffer)
             {
                 if read != self.buffer.len() {
-                    return Err(invalid_data_error("Chuncked header containing a line jump"));
+                    return Err(invalid_data_error("Chunked header containing a line jump"));
                 }
                 chunk_size.try_into().map_err(invalid_data_error)?
             } else {
-                return Err(invalid_data_error("Invalid chuncked header"));
+                return Err(invalid_data_error("Invalid chunked header"));
             };
 
             if self.chunk_size == 0 {

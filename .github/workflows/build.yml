@@ -44,3 +44,31 @@ jobs:
       - run: cargo test --verbose --all-targets --features rayon
         env:
           RUST_BACKTRACE: 1
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: rustup update
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-deny || true
+      - run: cargo deny check
+
+  semver_checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - run: rustup update
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-semver-checks || true
+      - run: cargo semver-checks check-release
+
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install typos-cli || true
+      - run: typos

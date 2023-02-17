@@ -73,7 +73,7 @@ impl Server {
         Ok(())
     }
 
-    /// Sets the global timout value (applies to both read and write).
+    /// Sets the global timeout value (applies to both read and write).
     #[inline]
     pub fn set_global_timeout(&mut self, timeout: Duration) {
         self.timeout = Some(timeout);

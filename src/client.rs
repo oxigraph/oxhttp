@@ -86,7 +86,7 @@ impl Client {
         Self::default()
     }
 
-    /// Sets the global timout value (applies to both read, write and connection).
+    /// Sets the global timeout value (applies to both read, write and connection).
     #[inline]
     pub fn set_global_timeout(&mut self, timeout: Duration) {
         self.timeout = Some(timeout);
