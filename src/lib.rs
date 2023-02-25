@@ -15,9 +15,11 @@ compile_error!(
     "Both `native-tls` and `rustls` options of oxhttp can't be enabled at the same time"
 );
 
+#[cfg(feature = "client")]
 mod client;
 mod io;
 pub mod model;
+#[cfg(feature = "server")]
 mod server;
 mod utils;
 
