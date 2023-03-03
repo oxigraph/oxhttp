@@ -1,3 +1,5 @@
+#![allow(unreachable_code, clippy::needless_return)]
+
 use crate::io::{decode_response, encode_request};
 use crate::model::{
     HeaderName, HeaderValue, InvalidHeader, Method, Request, Response, Status, Url,
@@ -7,36 +9,19 @@ use crate::utils::{invalid_data_error, invalid_input_error};
 use lazy_static::lazy_static;
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
+#[cfg(all(feature = "rustls", feature = "webpki-roots"))]
+use rustls::OwnedTrustAnchor;
 #[cfg(feature = "rustls")]
-use rustls_crate::{ClientConfig, ClientConnection, RootCertStore, ServerName, StreamOwned};
-#[cfg(feature = "rustls")]
+use rustls::{ClientConfig, ClientConnection, RootCertStore, ServerName, StreamOwned};
+#[cfg(feature = "rustls-native-certs")]
 use rustls_native_certs::load_native_certs;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{SocketAddr, TcpStream};
 #[cfg(feature = "rustls")]
 use std::sync::Arc;
 use std::time::Duration;
-
-#[cfg(feature = "rustls")]
-lazy_static! {
-    static ref RUSTLS_CONFIG: Arc<ClientConfig> = {
-        let mut root_store = RootCertStore::empty();
-        match load_native_certs() {
-            Ok(certs) => {
-                for cert in certs {
-                    root_store.add_parsable_certificates(&[cert.0]);
-                }
-            }
-            Err(e) => panic!("Error loading TLS certificates: {}", e),
-        }
-        Arc::new(
-            ClientConfig::builder()
-                .with_safe_defaults()
-                .with_root_certificates(root_store)
-                .with_no_client_auth(),
-        )
-    };
-}
+#[cfg(feature = "webpki-roots")]
+use webpki_roots::TLS_SERVER_ROOTS;
 
 #[cfg(feature = "native-tls")]
 lazy_static! {
@@ -45,6 +30,46 @@ lazy_static! {
             Ok(connector) => connector,
             Err(e) => panic!("Error while loading TLS configuration: {}", e),
         }
+    };
+}
+
+#[cfg(feature = "rustls")]
+lazy_static! {
+    static ref RUSTLS_CONFIG: Arc<ClientConfig> = {
+        let mut root_store = RootCertStore::empty();
+
+        #[cfg(feature = "rustls-native-certs")]
+        {
+            match load_native_certs() {
+                Ok(certs) => {
+                    for cert in certs {
+                        root_store.add_parsable_certificates(&[cert.0]);
+                    }
+                }
+                Err(e) => panic!("Error loading TLS certificates: {}", e),
+            }
+        }
+        #[cfg(feature = "webpki-roots")]
+        {
+            root_store.add_server_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|trust_anchor| {
+                OwnedTrustAnchor::from_subject_spki_name_constraints(
+                    trust_anchor.subject,
+                    trust_anchor.spki,
+                    trust_anchor.name_constraints,
+                )
+            }));
+        }
+        #[cfg(not(any(feature = "rustls-native-certs", feature = "webpki-roots")))]
+        compile_error!(
+            "rustls-native-certs or webpki-roots must be installed to use OxHTTP with Rustls"
+        );
+
+        Arc::new(
+            ClientConfig::builder()
+                .with_safe_defaults()
+                .with_root_certificates(root_store)
+                .with_no_client_auth(),
+        )
     };
 }
 
@@ -154,7 +179,6 @@ impl Client {
         ))
     }
 
-    #[allow(unreachable_code, clippy::needless_return)]
     fn single_request(&self, request: &mut Request) -> Result<Response> {
         // Additional headers
         set_header_fallback(request, HeaderName::USER_AGENT, &self.user_agent);

@@ -19,7 +19,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets
       - run: cargo clippy --all-targets --features native-tls
-      - run: cargo clippy --all-targets --features rustls
+      - run: cargo clippy --all-targets --features rustls-native
+      - run: cargo clippy --all-targets --features rustls-webpki
       - run: cargo clippy --all-targets --features rayon
 
   clippy_msrv:
@@ -30,7 +31,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features native-tls -- -D warnings -D clippy::all
-      - run: cargo clippy --all-targets --features rustls -- -D warnings -D clippy::all
+      - run: cargo clippy --all-targets --features rustls-native -- -D warnings -D clippy::all
+      - run: cargo clippy --all-targets --features rustls-webpki -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features rayon -- -D warnings -D clippy::all
 
   test:
@@ -44,7 +46,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --verbose --all-targets
       - run: cargo test --verbose --all-targets --features native-tls
-      - run: cargo test --verbose --all-targets --features rustls
+      - run: cargo test --verbose --all-targets --features rustls-native
+      - run: cargo test --verbose --all-targets --features rustls-webpki
       - run: cargo test --verbose --all-targets --features rayon
         env:
           RUST_BACKTRACE: 1
