@@ -11,11 +11,6 @@
     unused_qualifications
 )]
 
-#[cfg(all(target_feature = "native-tls", target_feature = "rustls"))]
-compile_error!(
-    "Both `native-tls` and `rustls` options of oxhttp can't be enabled at the same time"
-);
-
 #[cfg(feature = "client")]
 mod client;
 mod io;
