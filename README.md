@@ -5,13 +5,14 @@ OxHTTP
 [![Latest Version](https://img.shields.io/crates/v/oxhttp.svg)](https://crates.io/crates/oxhttp)
 [![Released API docs](https://docs.rs/oxhttp/badge.svg)](https://docs.rs/oxhttp)
 
-OxHTTP is a very simple synchronous implementation of [HTTP 1.1](https://httpwg.org/http-core/) in Rust.
+OxHTTP is a simple and naive synchronous implementation of [HTTP 1.1](https://httpwg.org/http-core/) in Rust.
 It provides both a client and a server.
+It does not aim to be a fully-working-in-all-cases HTTP implementation but to be only a naive one to be use in simple usecases.
 
 
 ## Client
 
-OxHTTP provides [a very simple client](https://docs.rs/oxhttp/latest/oxhttp/struct.Client.html).
+OxHTTP provides [a client](https://docs.rs/oxhttp/latest/oxhttp/struct.Client.html).
 It aims at following the basic concepts of the [Web Fetch standard](https://fetch.spec.whatwg.org/) without the bits specific to web browsers (context, CORS...).
 
 HTTPS is supported behind the disabled by default `native-tls` feature (to use the current system native implementation) or `rustls` feature (to use [Rustls](https://github.com/rustls/rustls)).
@@ -32,8 +33,8 @@ let body = response.into_body().to_string().unwrap();
 
 ## Server
 
-OxHTTP provides [a very simple threaded HTTP server](https://docs.rs/oxhttp/latest/oxhttp/struct.Server.html).
-It is still a work in progress. Use at your own risks!
+OxHTTP provides [a threaded HTTP server](https://docs.rs/oxhttp/latest/oxhttp/struct.Server.html).
+It is still a work in progress. Use at your own risks behind a reverse proxy!
 
 Example:
 ```rust no_run

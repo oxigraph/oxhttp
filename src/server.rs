@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::thread::Builder;
 use std::time::Duration;
 
-/// A simple HTTP server.
+/// An HTTP server.
 ///
 /// It currently provides two threading approaches:
 /// - If the `rayon` feature is enabled a thread pool is used.

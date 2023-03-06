@@ -1,5 +1,3 @@
-//! Simple HTTP client
-
 use crate::io::{decode_response, encode_request};
 use crate::model::{
     HeaderName, HeaderValue, InvalidHeader, Method, Request, Response, Status, Url,
@@ -51,7 +49,7 @@ lazy_static! {
     };
 }
 
-/// A simple HTTP client.
+/// An HTTP client.
 ///
 /// It aims at following the basic concepts of the [Web Fetch standard](https://fetch.spec.whatwg.org/) without the bits specific to web browsers (context, CORS...).
 ///
