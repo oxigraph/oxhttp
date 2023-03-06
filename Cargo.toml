@@ -10,7 +10,7 @@ description = """
 Very simple implementation of HTTP 1.1 (both client and server)
 """
 edition = "2018"
-rust-version = "1.58"
+rust-version = "1.60"
 
 [dependencies]
 httparse = "1"
