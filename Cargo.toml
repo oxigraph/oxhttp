@@ -16,7 +16,6 @@ rust-version = "1.60"
 httparse = "1"
 lazy_static = "1"
 native-tls = { version = "0.2", optional = true }
-num_cpus = { version = "1", optional = true }
 rayon-core = { version = "1", optional = true }
 rustls-crate = { version = "0.20", optional = true, package = "rustls" }
 rustls-native-certs = { version = "0.6", optional = true }
@@ -25,7 +24,7 @@ url = "2"
 [features]
 default = ["client", "server"]
 rustls = ["rustls-crate", "rustls-native-certs"]
-rayon = ["rayon-core", "num_cpus"]
+rayon = ["rayon-core"]
 client = []
 server = []
 

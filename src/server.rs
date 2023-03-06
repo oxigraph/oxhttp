@@ -9,6 +9,8 @@ use std::convert::TryFrom;
 use std::io::{copy, sink, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
+#[cfg(feature = "rayon")]
+use std::thread::available_parallelism;
 #[cfg(not(feature = "rayon"))]
 use std::thread::Builder;
 use std::time::Duration;
@@ -59,7 +61,7 @@ impl Server {
             timeout: None,
             server: None,
             #[cfg(feature = "rayon")]
-            num_threads: num_cpus::get() * 4,
+            num_threads: available_parallelism().map_or(4, |c| c.get()) * 4,
         }
     }
 
