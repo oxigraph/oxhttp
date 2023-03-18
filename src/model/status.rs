@@ -1,5 +1,4 @@
 use std::borrow::Borrow;
-use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::ops::Deref;
@@ -8,7 +7,6 @@ use std::ops::Deref;
 ///
 /// ```
 /// use oxhttp::model::Status;
-/// use std::convert::TryFrom;
 ///
 /// assert_eq!(Status::OK, Status::try_from(200)?);
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())

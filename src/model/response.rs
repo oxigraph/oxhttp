@@ -1,6 +1,5 @@
 use crate::model::header::IntoHeaderName;
 use crate::model::{Body, HeaderName, HeaderValue, Headers, InvalidHeader, Status};
-use std::convert::TryInto;
 
 /// A HTTP response.
 ///

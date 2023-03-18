@@ -5,7 +5,6 @@ use crate::model::{
 };
 #[cfg(feature = "rayon")]
 use rayon_core::ThreadPoolBuilder;
-use std::convert::TryFrom;
 use std::io::{copy, sink, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::Arc;

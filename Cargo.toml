@@ -9,7 +9,7 @@ repository = "https://github.com/oxigraph/oxhttp"
 description = """
 Very simple implementation of HTTP 1.1 (both client and server)
 """
-edition = "2018"
+edition = "2021"
 rust-version = "1.60"
 
 [dependencies]

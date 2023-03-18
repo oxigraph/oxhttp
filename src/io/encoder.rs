@@ -137,7 +137,6 @@ fn does_response_must_include_body(status: Status) -> bool {
 mod tests {
     use super::*;
     use crate::model::{ChunkedTransferPayload, Headers, Method, Status};
-    use std::convert::TryFrom;
     use std::io::Cursor;
     use std::str;
 

@@ -4,7 +4,6 @@ use crate::model::{
 };
 use crate::utils::invalid_data_error;
 use std::cmp::min;
-use std::convert::{TryFrom, TryInto};
 use std::io::{BufRead, Error, ErrorKind, Read, Result};
 use std::str;
 use std::str::FromStr;

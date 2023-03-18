@@ -1,6 +1,5 @@
 use crate::model::Headers;
 use std::cmp::min;
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::io::{Cursor, Error, ErrorKind, Read, Result};
 

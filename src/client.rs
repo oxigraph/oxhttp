@@ -11,7 +11,6 @@ use native_tls::TlsConnector;
 use rustls_crate::{ClientConfig, ClientConnection, RootCertStore, ServerName, StreamOwned};
 #[cfg(feature = "rustls")]
 use rustls_native_certs::load_native_certs;
-use std::convert::TryFrom;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{SocketAddr, TcpStream};
 #[cfg(feature = "rustls")]
