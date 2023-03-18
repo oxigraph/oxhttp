@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.6] - 2023-03-18
+
+### Added
+- `IntoHeaderName` trait that allows to call methods with plain strings instead of explicit `HeaderName` objects.
+- `client` and `server` features to enable/disable the HTTP client and/or server (both features are enabled by default).
+
+### Changed
+- Bindings to server localhost now properly binds to both IPv4 and IPv6 at the same time.
+- Set minimum supported Rust version to 1.60.
+
+
 ## [0.1.5] - 2022-08-16
 
 ### Changed
