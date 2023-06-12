@@ -7,11 +7,10 @@ use crate::model::{
 use rayon_core::ThreadPoolBuilder;
 use std::io::{copy, sink, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use std::sync::Arc;
 #[cfg(feature = "rayon")]
 use std::thread::available_parallelism;
 #[cfg(not(feature = "rayon"))]
-use std::thread::Builder;
+use std::thread::{self, Builder};
 use std::time::Duration;
 
 /// An HTTP server.
@@ -44,7 +43,7 @@ use std::time::Duration;
 /// ```
 #[allow(missing_copy_implementations)]
 pub struct Server {
-    on_request: Arc<dyn Fn(&mut Request) -> Response + Send + Sync + 'static>,
+    on_request: Box<dyn Fn(&mut Request) -> Response + Send + Sync + 'static>,
     timeout: Option<Duration>,
     server: Option<HeaderValue>,
     #[cfg(feature = "rayon")]
@@ -56,7 +55,7 @@ impl Server {
     #[inline]
     pub fn new(on_request: impl Fn(&mut Request) -> Response + Send + Sync + 'static) -> Self {
         Self {
-            on_request: Arc::new(on_request),
+            on_request: Box::new(on_request),
             timeout: None,
             server: None,
             #[cfg(feature = "rayon")]
@@ -109,9 +108,6 @@ impl Server {
                     for stream in listener.incoming() {
                         match stream {
                             Ok(stream) => {
-                                let on_request = self.on_request.clone();
-                                let timeout = self.timeout;
-                                let server = self.server.clone();
                                 p.spawn(move |_| {
                                     let peer = match stream.peer_addr() {
                                         Ok(peer) => peer,
@@ -120,7 +116,7 @@ impl Server {
                                             return;
                                         }
                                     };
-                                    if let Err(error) = accept_request(stream, on_request, timeout, server)
+                                    if let Err(error) = accept_request(stream, &*self.on_request, self.timeout, &self.server)
                                     {
                                         eprintln!(
                                             "OxHTTP TCP error when writing response to {peer}: {error}"
@@ -142,52 +138,49 @@ impl Server {
     /// Runs the server by listening to `address`.
     #[cfg(not(feature = "rayon"))]
     pub fn listen(&self, address: impl ToSocketAddrs) -> Result<()> {
-        // TODO: use scope?
-        let timeout = self.timeout;
-        let threads = open_tcp(address)?
-            .into_iter()
-            .map(|listener| {
-                let on_request = self.on_request.clone();
-                let server = self.server.clone();
-                Builder::new().name(format!("Thread listening to {}", listener.local_addr()?)).spawn(move || {
-                    for stream in listener.incoming() {
-                        match stream {
-                            Ok(stream) => {
-                                let on_request = on_request.clone();
-                                let server = server.clone();
-                                if let Err(error) =  Builder::new().spawn(move || {
-                                    let peer = match stream.peer_addr() {
-                                        Ok(peer) => peer,
-                                        Err(error) => {
-                                            eprintln!("OxHTTP TCP error when attempting to get the peer address: {error}");
-                                            return;
+        thread::scope(|scope| {
+            let timeout = self.timeout;
+            let threads = open_tcp(address)?
+                .into_iter()
+                .map(|listener| {
+                    Builder::new().name(format!("Thread listening to {}", listener.local_addr()?)).spawn_scoped(scope, move || {
+                        for stream in listener.incoming() {
+                            match stream {
+                                Ok(stream) => {
+                                    if let Err(error) = Builder::new().spawn_scoped(scope, move || {
+                                        let peer = match stream.peer_addr() {
+                                            Ok(peer) => peer,
+                                            Err(error) => {
+                                                eprintln!("OxHTTP TCP error when attempting to get the peer address: {error}");
+                                                return;
+                                            }
+                                        };
+                                        if let Err(error) =
+                                            accept_request(stream, &*self.on_request, timeout, &self.server)
+                                        {
+                                            eprintln!(
+                                                "OxHTTP TCP error when writing response to {peer}: {error}"
+                                            )
                                         }
-                                    };
-                                    if let Err(error) =
-                                        accept_request(stream, on_request, timeout, server)
-                                    {
-                                        eprintln!(
-                                            "OxHTTP TCP error when writing response to {peer}: {error}"
-                                        )
+                                    }) {
+                                        eprintln!("OxHTTP thread spawn error: {error}");
                                     }
-                                }) {
-                                    eprintln!("OxHTTP thread spawn error: {error}");
+                                }
+                                Err(error) => {
+                                    eprintln!("OxHTTP TCP error when opening stream: {error}");
                                 }
                             }
-                            Err(error) => {
-                                eprintln!("OxHTTP TCP error when opening stream: {error}");
-                            }
                         }
-                    }
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        for thread in threads {
-            thread
-                .join()
-                .map_err(|_| Error::new(ErrorKind::Other, "The server thread panicked"))?;
-        }
-        Ok(())
+                .collect::<Result<Vec<_>>>()?;
+            for thread in threads {
+                thread
+                    .join()
+                    .map_err(|_| Error::new(ErrorKind::Other, "The server thread panicked"))?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -214,9 +207,9 @@ fn open_tcp(address: impl ToSocketAddrs) -> Result<Vec<TcpListener>> {
 
 fn accept_request(
     mut stream: TcpStream,
-    on_request: Arc<dyn Fn(&mut Request) -> Response>,
+    on_request: &dyn Fn(&mut Request) -> Response,
     timeout: Option<Duration>,
-    server: Option<HeaderValue>,
+    server: &Option<HeaderValue>,
 ) -> Result<()> {
     stream.set_read_timeout(timeout)?;
     stream.set_write_timeout(timeout)?;
@@ -230,7 +223,7 @@ fn accept_request(
                 if let Some(expect) = request.header(&HeaderName::EXPECT).cloned() {
                     if expect.eq_ignore_ascii_case(b"100-continue") {
                         stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
-                        read_body_and_build_response(request, reader, on_request.as_ref())
+                        read_body_and_build_response(request, reader, on_request)
                     } else {
                         (
                             build_text_response(
@@ -244,7 +237,7 @@ fn accept_request(
                         )
                     }
                 } else {
-                    read_body_and_build_response(request, reader, on_request.as_ref())
+                    read_body_and_build_response(request, reader, on_request)
                 }
             }
             Err(error) => {
@@ -258,7 +251,7 @@ fn accept_request(
         connection_state = new_connection_state;
 
         // Additional headers
-        set_header_fallback(&mut response, HeaderName::SERVER, &server);
+        set_header_fallback(&mut response, HeaderName::SERVER, server);
 
         encode_response(&mut response, BufWriter::new(&mut stream))?;
     }
@@ -287,7 +280,7 @@ fn read_body_and_build_response(
                     .header(&HeaderName::CONNECTION)
                     .and_then(|v| {
                         v.eq_ignore_ascii_case(b"close")
-                            .then(|| ConnectionState::Close)
+                            .then_some(ConnectionState::Close)
                     })
                     .unwrap_or(ConnectionState::KeepAlive);
                 (response, connection_state)
