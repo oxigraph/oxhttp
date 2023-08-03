@@ -1,5 +1,4 @@
 use crate::model::Headers;
-use std::cmp::min;
 use std::fmt;
 use std::io::{Cursor, Error, ErrorKind, Read, Result};
 
@@ -106,29 +105,29 @@ impl Body {
 
 impl Read for Body {
     #[inline]
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    fn read(&mut self, mut buf: &mut [u8]) -> Result<usize> {
         match &mut self.0 {
             BodyAlt::SimpleOwned(c) => c.read(buf),
             BodyAlt::SimpleBorrowed(c) => c.read(buf),
             BodyAlt::Sized {
                 content,
-                total_len,
                 consumed_len,
+                total_len,
             } => {
-                let filtered_buf_size =
-                    min(*total_len - *consumed_len, buf.len().try_into().unwrap())
-                        .try_into()
-                        .unwrap();
-                if filtered_buf_size == 0 {
-                    return Ok(0); // No need to read anything
+                let remaining_size = *total_len - *consumed_len;
+                if remaining_size < u64::try_from(buf.len()).unwrap() {
+                    buf = &mut buf[..usize::try_from(remaining_size).unwrap()];
                 }
-                let additional = content.read(&mut buf[..filtered_buf_size])?;
-                *consumed_len += u64::try_from(additional).unwrap();
-                if additional == 0 && consumed_len != total_len {
-                    // We check we do not miss some bytes
+                if buf.is_empty() {
+                    return Ok(0); // Nothing to read
+                }
+                let read = content.read(buf)?;
+                *consumed_len += u64::try_from(read).unwrap();
+                if read == 0 {
+                    // We are missing some bytes
                     return Err(Error::new(ErrorKind::ConnectionAborted, format!("The body was expected to contain {total_len} bytes but we have been able to only read {consumed_len}")));
                 }
-                Ok(additional)
+                Ok(read)
             }
             BodyAlt::Chunked(inner) => inner.read(buf),
         }
