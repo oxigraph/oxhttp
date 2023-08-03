@@ -251,7 +251,13 @@ fn accept_request(
         connection_state = new_connection_state;
 
         // Additional headers
-        set_header_fallback(&mut response, HeaderName::SERVER, server);
+        if let Some(server) = server {
+            if !response.headers().contains(&HeaderName::SERVER) {
+                response
+                    .headers_mut()
+                    .set(HeaderName::SERVER, server.clone())
+            }
+        }
 
         encode_response(&mut response, BufWriter::new(&mut stream))?;
     }
@@ -306,20 +312,6 @@ fn build_text_response(status: Status, text: String) -> Response {
         .with_header(HeaderName::CONTENT_TYPE, "text/plain; charset=utf-8")
         .unwrap()
         .with_body(text)
-}
-
-fn set_header_fallback(
-    response: &mut Response,
-    header_name: HeaderName,
-    header_value: &Option<HeaderValue>,
-) {
-    if let Some(header_value) = header_value {
-        if !response.headers().contains(&header_name) {
-            response
-                .headers_mut()
-                .set(header_name, header_value.clone())
-        }
-    }
 }
 
 #[cfg(test)]

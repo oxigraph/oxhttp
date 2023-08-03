@@ -14,6 +14,7 @@ edition = "2021"
 rust-version = "1.65"
 
 [dependencies]
+flate2 = { version = "1", optional = true }
 httparse = "1"
 lazy_static = "1"
 native-tls = { version = "0.2", optional = true }
@@ -33,3 +34,4 @@ server = []
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
