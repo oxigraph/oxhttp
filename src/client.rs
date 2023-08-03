@@ -79,6 +79,8 @@ lazy_static! {
 ///
 /// HTTPS is supported behind the disabled by default `native-tls` feature (to use the current system native implementation) or `rustls` feature (to use [Rustls](https://github.com/rustls/rustls)).
 ///
+/// If the `flate2` feature is enabled, the client will automatically decode `gzip` and `deflate` content-encodings.
+///
 /// The client does not follow redirections by default. Use [`Client::set_redirection_limit`] to set a limit to the number of consecutive redirections the server should follow.
 ///
 /// Missing: HSTS support, authentication and keep alive.
@@ -180,10 +182,24 @@ impl Client {
 
     fn single_request(&self, request: &mut Request) -> Result<Response> {
         // Additional headers
-        set_header_fallback(request, HeaderName::USER_AGENT, &self.user_agent);
-        request
-            .headers_mut()
-            .set(HeaderName::CONNECTION, HeaderValue::new_unchecked("close"));
+        {
+            let headers = request.headers_mut();
+            headers.set(HeaderName::CONNECTION, HeaderValue::new_unchecked("close"));
+            if let Some(user_agent) = &self.user_agent {
+                if !headers.contains(&HeaderName::USER_AGENT) {
+                    headers.set(HeaderName::USER_AGENT, user_agent.clone())
+                }
+            }
+            if cfg!(feature = "flate2")
+                && !headers.contains(&HeaderName::ACCEPT_ENCODING)
+                && !headers.contains(&HeaderName::RANGE)
+            {
+                headers.set(
+                    HeaderName::ACCEPT_ENCODING,
+                    HeaderValue::new_unchecked("gzip,deflate"),
+                );
+            }
+        }
 
         #[cfg(any(feature = "native-tls", feature = "rustls"))]
         let host = request
@@ -273,18 +289,6 @@ fn get_and_validate_socket_addresses(url: &Url, default_port: u16) -> Result<Vec
     Ok(addresses)
 }
 
-fn set_header_fallback(
-    request: &mut Request,
-    header_name: HeaderName,
-    header_value: &Option<HeaderValue>,
-) {
-    if let Some(header_value) = header_value {
-        if !request.headers().contains(&header_name) {
-            request.headers_mut().set(header_name, header_value.clone())
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,6 +305,8 @@ mod tests {
             response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
             b"text/html; charset=UTF-8"
         );
+        let body = response.into_body().to_string()?;
+        assert!(body.contains("<html"));
         Ok(())
     }
 

@@ -137,7 +137,6 @@ fn does_response_must_include_body(status: Status) -> bool {
 mod tests {
     use super::*;
     use crate::model::{ChunkedTransferPayload, Headers, Method, Status};
-    use std::io::Cursor;
     use std::str;
 
     #[test]
@@ -220,7 +219,7 @@ mod tests {
             "http://example.com/foo/bar?query#fragment".parse().unwrap(),
         )
         .with_body(Body::from_chunked_transfer_payload(SimpleTrailers {
-            read: Cursor::new("testbodybody"),
+            read: b"testbodybody".as_slice(),
             trailers,
         }));
         let mut buffer = Vec::new();
@@ -272,7 +271,7 @@ mod tests {
     }
 
     struct SimpleTrailers {
-        read: Cursor<&'static str>,
+        read: &'static [u8],
         trailers: Headers,
     }
 

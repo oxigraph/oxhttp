@@ -1,4 +1,6 @@
 use crate::model::Headers;
+#[cfg(feature = "flate2")]
+use flate2::read::{DeflateDecoder, GzDecoder};
 use std::fmt;
 use std::io::{Cursor, Error, ErrorKind, Read, Result};
 
@@ -16,6 +18,10 @@ enum BodyAlt {
         consumed_len: u64,
     },
     Chunked(Box<dyn ChunkedTransferPayload>),
+    #[cfg(feature = "flate2")]
+    DecodingDeflate(DeflateDecoder<Box<Body>>),
+    #[cfg(feature = "flate2")]
+    DecodingGzip(GzDecoder<Box<Body>>),
 }
 
 impl Body {
@@ -42,6 +48,18 @@ impl Body {
         Self(BodyAlt::Chunked(Box::new(payload)))
     }
 
+    #[cfg(feature = "flate2")]
+    pub(crate) fn decode_gzip(self) -> Self {
+        Self(BodyAlt::DecodingGzip(GzDecoder::new(Box::new(self))))
+    }
+
+    #[cfg(feature = "flate2")]
+    pub(crate) fn decode_deflate(self) -> Self {
+        Self(BodyAlt::DecodingDeflate(DeflateDecoder::new(Box::new(
+            self,
+        ))))
+    }
+
     /// The number of bytes in the body (if known).
     #[allow(clippy::len_without_is_empty)]
     #[inline]
@@ -51,6 +69,8 @@ impl Body {
             BodyAlt::SimpleBorrowed(d) => Some(d.len().try_into().unwrap()),
             BodyAlt::Sized { total_len, .. } => Some(*total_len),
             BodyAlt::Chunked(_) => None,
+            #[cfg(feature = "flate2")]
+            BodyAlt::DecodingDeflate(_) | BodyAlt::DecodingGzip(_) => None,
         }
     }
 
@@ -61,6 +81,10 @@ impl Body {
         match &self.0 {
             BodyAlt::SimpleOwned(_) | BodyAlt::SimpleBorrowed(_) | BodyAlt::Sized { .. } => None,
             BodyAlt::Chunked(c) => c.trailers(),
+            #[cfg(feature = "flate2")]
+            BodyAlt::DecodingDeflate(c) => c.get_ref().trailers(),
+            #[cfg(feature = "flate2")]
+            BodyAlt::DecodingGzip(c) => c.get_ref().trailers(),
         }
     }
 
@@ -101,6 +125,26 @@ impl Body {
         self.read_to_string(&mut buf)?;
         Ok(buf)
     }
+
+    fn debug_fields<'a, 'b, 'c>(
+        &'b self,
+        s: &'c mut fmt::DebugStruct<'b, 'a>,
+    ) -> &'c mut fmt::DebugStruct<'b, 'a> {
+        match &self.0 {
+            BodyAlt::SimpleOwned(d) => s.field("content-length", &d.get_ref().len()),
+            BodyAlt::SimpleBorrowed(d) => s.field("content-length", &d.len()),
+            BodyAlt::Sized { total_len, .. } => s.field("content-length", total_len),
+            BodyAlt::Chunked(_) => s.field("transfer-encoding", &"chunked"),
+            #[cfg(feature = "flate2")]
+            BodyAlt::DecodingDeflate(inner) => inner
+                .get_ref()
+                .debug_fields(s.field("content-encoding", &"deflate")),
+            #[cfg(feature = "flate2")]
+            BodyAlt::DecodingGzip(inner) => inner
+                .get_ref()
+                .debug_fields(s.field("content-encoding", &"gzip")),
+        }
+    }
 }
 
 impl Read for Body {
@@ -130,6 +174,10 @@ impl Read for Body {
                 Ok(read)
             }
             BodyAlt::Chunked(inner) => inner.read(buf),
+            #[cfg(feature = "flate2")]
+            BodyAlt::DecodingDeflate(inner) => inner.read(buf),
+            #[cfg(feature = "flate2")]
+            BodyAlt::DecodingGzip(inner) => inner.read(buf),
         }
     }
 }
@@ -172,17 +220,7 @@ impl From<&'static str> for Body {
 impl fmt::Debug for Body {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.0 {
-            BodyAlt::SimpleOwned(d) => f
-                .debug_struct("Body")
-                .field("len", &d.get_ref().len())
-                .finish(),
-            BodyAlt::SimpleBorrowed(d) => f.debug_struct("Body").field("len", &d.len()).finish(),
-            BodyAlt::Sized { total_len, .. } => {
-                f.debug_struct("Body").field("len", total_len).finish()
-            }
-            BodyAlt::Chunked(_) => f.debug_struct("Body").finish(),
-        }
+        self.debug_fields(&mut f.debug_struct("Body")).finish()
     }
 }
 
