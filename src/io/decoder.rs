@@ -254,16 +254,15 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
             self.buffer.clear();
             self.reader.read_until(b'\n', &mut self.buffer)?;
             self.chunk_position = 0;
-            self.chunk_size = if let Ok(httparse::Status::Complete((read, chunk_size))) =
+            let Ok(httparse::Status::Complete((read, chunk_size))) =
                 httparse::parse_chunk_size(&self.buffer)
-            {
-                if read != self.buffer.len() {
-                    return Err(invalid_data_error("Chunked header containing a line jump"));
-                }
-                chunk_size.try_into().map_err(invalid_data_error)?
-            } else {
+            else {
                 return Err(invalid_data_error("Invalid chunked header"));
             };
+            if read != self.buffer.len() {
+                return Err(invalid_data_error("Chunked header containing a line jump"));
+            }
+            self.chunk_size = chunk_size.try_into().map_err(invalid_data_error)?;
 
             if self.chunk_size == 0 {
                 // we read the trailers
@@ -287,28 +286,28 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
                     }
                 }
                 let mut trailers = [httparse::EMPTY_HEADER; DEFAULT_SIZE];
-                if let httparse::Status::Complete((read, parsed_trailers)) =
+                let httparse::Status::Complete((read, parsed_trailers)) =
                     httparse::parse_headers(&self.buffer[1..], &mut trailers)
                         .map_err(invalid_data_error)?
-                {
-                    if read != self.buffer.len() - 1 {
-                        return Err(invalid_data_error(
-                            "Invalid data at the end of the trailer section",
-                        ));
-                    }
-                    let mut trailers = Headers::new();
-                    for trailer in parsed_trailers {
-                        trailers.append(
-                            HeaderName::new_unchecked(trailer.name.to_ascii_lowercase()),
-                            HeaderValue::new_unchecked(trailer.value),
-                        );
-                    }
-                    self.trailers = Some(trailers);
-                } else {
+                else {
                     return Err(invalid_data_error(
                         "Partial HTTP headers containing two line jumps",
                     ));
+                };
+                if read != self.buffer.len() - 1 {
+                    return Err(invalid_data_error(
+                        "Invalid data at the end of the trailer section",
+                    ));
                 }
+                let mut trailers = Headers::new();
+                for trailer in parsed_trailers {
+                    trailers.append(
+                        HeaderName::new_unchecked(trailer.name.to_ascii_lowercase()),
+                        HeaderValue::new_unchecked(trailer.value),
+                    );
+                }
+                self.trailers = Some(trailers);
+
                 return Ok(0);
             }
         }

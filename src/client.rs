@@ -136,38 +136,37 @@ impl Client {
         for _ in 0..(self.redirection_limit + 1) {
             let previous_method = request.method().clone();
             let response = self.single_request(&mut request)?;
-            if let Some(location) = response.header(&HeaderName::LOCATION) {
-                let new_method = match response.status() {
-                    Status::MOVED_PERMANENTLY | Status::FOUND | Status::SEE_OTHER => {
-                        if previous_method == Method::HEAD {
-                            Method::HEAD
-                        } else {
-                            Method::GET
-                        }
-                    }
-                    Status::TEMPORARY_REDIRECT | Status::PERMANENT_REDIRECT
-                        if previous_method.is_safe() =>
-                    {
-                        previous_method
-                    }
-                    _ => return Ok(response),
-                };
-                let location = location.to_str().map_err(invalid_data_error)?;
-                let new_url = request.url().join(location).map_err(|e| {
-                    invalid_data_error(format!(
-                        "Invalid URL in Location header raising error {e}: {location}"
-                    ))
-                })?;
-                let mut request_builder = Request::builder(new_method, new_url);
-                for (header_name, header_value) in request.headers() {
-                    request_builder
-                        .headers_mut()
-                        .set(header_name.clone(), header_value.clone());
-                }
-                request = request_builder.build();
-            } else {
+            let Some(location) = response.header(&HeaderName::LOCATION) else {
                 return Ok(response);
+            };
+            let new_method = match response.status() {
+                Status::MOVED_PERMANENTLY | Status::FOUND | Status::SEE_OTHER => {
+                    if previous_method == Method::HEAD {
+                        Method::HEAD
+                    } else {
+                        Method::GET
+                    }
+                }
+                Status::TEMPORARY_REDIRECT | Status::PERMANENT_REDIRECT
+                    if previous_method.is_safe() =>
+                {
+                    previous_method
+                }
+                _ => return Ok(response),
+            };
+            let location = location.to_str().map_err(invalid_data_error)?;
+            let new_url = request.url().join(location).map_err(|e| {
+                invalid_data_error(format!(
+                    "Invalid URL in Location header raising error {e}: {location}"
+                ))
+            })?;
+            let mut request_builder = Request::builder(new_method, new_url);
+            for (header_name, header_value) in request.headers() {
+                request_builder
+                    .headers_mut()
+                    .set(header_name.clone(), header_value.clone());
             }
+            request = request_builder.build();
         }
         Err(Error::new(
             ErrorKind::Other,
