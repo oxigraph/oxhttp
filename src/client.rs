@@ -194,8 +194,10 @@ impl Client {
         match request.url().scheme() {
             "http" => {
                 let addresses = get_and_validate_socket_addresses(request.url(), 80)?;
-                let mut stream = self.connect(&addresses)?;
-                encode_request(request, BufWriter::new(&mut stream))?;
+                let stream = self.connect(&addresses)?;
+                let stream = encode_request(request, BufWriter::new(stream))?
+                    .into_inner()
+                    .map_err(|e| e.into_error())?;
                 decode_response(BufReader::new(stream))
             }
             "https" => {
@@ -203,10 +205,12 @@ impl Client {
                 {
                     let addresses = get_and_validate_socket_addresses(request.url(), 443)?;
                     let stream = self.connect(&addresses)?;
-                    let mut stream = TLS_CONNECTOR
+                    let stream = TLS_CONNECTOR
                         .connect(host, stream)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
-                    encode_request(request, BufWriter::new(&mut stream))?;
+                    let stream = encode_request(request, BufWriter::new(stream))?
+                        .into_inner()
+                        .map_err(|e| e.into_error())?;
                     return decode_response(BufReader::new(stream));
                 }
                 #[cfg(feature = "rustls")]
@@ -215,8 +219,10 @@ impl Client {
                     let dns_name = ServerName::try_from(host).map_err(invalid_input_error)?;
                     let connection = ClientConnection::new(RUSTLS_CONFIG.clone(), dns_name)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
-                    let mut stream = StreamOwned::new(connection, self.connect(&addresses)?);
-                    encode_request(request, BufWriter::new(&mut stream))?;
+                    let stream = StreamOwned::new(connection, self.connect(&addresses)?);
+                    let stream = encode_request(request, BufWriter::new(stream))?
+                        .into_inner()
+                        .map_err(|e| e.into_error())?;
                     return decode_response(BufReader::new(stream));
                 }
                 #[cfg(not(any(feature = "native-tls", feature = "rustls")))]

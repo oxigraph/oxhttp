@@ -253,7 +253,9 @@ fn accept_request(
         // Additional headers
         set_header_fallback(&mut response, HeaderName::SERVER, server);
 
-        encode_response(&mut response, BufWriter::new(&mut stream))?;
+        stream = encode_response(&mut response, BufWriter::new(stream))?
+            .into_inner()
+            .map_err(|e| e.into_error())?;
     }
     Ok(())
 }
