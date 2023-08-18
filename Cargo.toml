@@ -1,6 +1,6 @@
 [package]
 name = "oxhttp"
-version = "0.1.6"
+version = "0.2.0-dev"
 authors = ["Tpt <thomas@pellissier-tanon.fr>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -18,7 +18,6 @@ flate2 = { version = "1", optional = true }
 httparse = "1"
 lazy_static = "1"
 native-tls = { version = "0.2", optional = true }
-rayon-core = { version = "1", optional = true }
 rustls = { version = "0.21", optional = true }
 rustls-native-certs = { version = "0.6", optional = true }
 webpki-roots = { version = "0.25", optional = true }
@@ -28,7 +27,6 @@ url = "2"
 default = ["client", "server"]
 rustls-native = ["rustls", "rustls-native-certs"]
 rustls-webpki = ["rustls", "webpki-roots"]
-rayon = ["rayon-core"]
 client = []
 server = []
 

@@ -21,7 +21,6 @@ jobs:
       - run: cargo clippy --all-targets --features native-tls
       - run: cargo clippy --all-targets --features rustls-native
       - run: cargo clippy --all-targets --features rustls-webpki
-      - run: cargo clippy --all-targets --features rayon
       - run: cargo clippy --all-targets --features flate2
 
   clippy_msrv:
@@ -34,7 +33,6 @@ jobs:
       - run: cargo clippy --all-targets --features native-tls -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features rustls-native -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features rustls-webpki -- -D warnings -D clippy::all
-      - run: cargo clippy --all-targets --features rayon -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features flate2 -- -D warnings -D clippy::all
 
   test:
@@ -50,10 +48,7 @@ jobs:
       - run: cargo test --verbose --all-targets --features native-tls
       - run: cargo test --verbose --all-targets --features rustls-native
       - run: cargo test --verbose --all-targets --features rustls-webpki
-      - run: cargo test --verbose --all-targets --features rayon
       - run: cargo test --verbose --all-targets --features flate2
-        env:
-          RUST_BACKTRACE: 1
 
   rustdoc:
     runs-on: ubuntu-latest
