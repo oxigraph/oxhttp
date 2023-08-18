@@ -259,7 +259,9 @@ fn accept_request(
             }
         }
 
-        encode_response(&mut response, BufWriter::new(&mut stream))?;
+        stream = encode_response(&mut response, BufWriter::new(stream))?
+            .into_inner()
+            .map_err(|e| e.into_error())?;
     }
     Ok(())
 }

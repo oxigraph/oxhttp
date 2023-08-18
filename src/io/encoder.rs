@@ -2,7 +2,7 @@ use crate::model::{Body, HeaderName, Headers, Method, Request, Response, Status}
 use crate::utils::invalid_input_error;
 use std::io::{copy, Read, Result, Write};
 
-pub fn encode_request(request: &mut Request, mut writer: impl Write) -> Result<()> {
+pub fn encode_request<W: Write>(request: &mut Request, mut writer: W) -> Result<W> {
     if !request.url().username().is_empty() || request.url().password().is_some() {
         return Err(invalid_input_error(
             "Username and password are not allowed in HTTP URLs",
@@ -44,15 +44,15 @@ pub fn encode_request(request: &mut Request, mut writer: impl Write) -> Result<(
     let must_include_body = does_request_must_include_body(request.method());
     encode_body(request.body_mut(), &mut writer, must_include_body)?;
 
-    writer.flush()
+    Ok(writer)
 }
 
-pub fn encode_response(response: &mut Response, mut writer: impl Write) -> Result<()> {
+pub fn encode_response<W: Write>(response: &mut Response, mut writer: W) -> Result<W> {
     write!(&mut writer, "HTTP/1.1 {}\r\n", response.status())?;
     encode_headers(response.headers(), &mut writer)?;
     let must_include_body = does_response_must_include_body(response.status());
     encode_body(response.body_mut(), &mut writer, must_include_body)?;
-    writer.flush()
+    Ok(writer)
 }
 
 fn encode_headers(headers: &Headers, writer: &mut impl Write) -> Result<()> {
@@ -166,8 +166,7 @@ mod tests {
         .with_header(HeaderName::ACCEPT, "application/json")
         .unwrap()
         .build();
-        let mut buffer = Vec::new();
-        encode_request(&mut request, &mut buffer)?;
+        let buffer = encode_request(&mut request, Vec::new())?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "GET /foo/bar?query HTTP/1.1\r\nhost: example.com:81\r\naccept: application/json\r\n\r\n"
@@ -184,8 +183,7 @@ mod tests {
         .with_header(HeaderName::ACCEPT, "application/json")
         .unwrap()
         .with_body(b"testbodybody".as_ref());
-        let mut buffer = Vec::new();
-        encode_request(&mut request, &mut buffer)?;
+        let buffer = encode_request(&mut request, Vec::new())?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\naccept: application/json\r\ncontent-length: 12\r\n\r\ntestbodybody"
@@ -200,8 +198,7 @@ mod tests {
             "http://example.com/foo/bar?query#fragment".parse().unwrap(),
         )
         .build();
-        let mut buffer = Vec::new();
-        encode_request(&mut request, &mut buffer)?;
+        let buffer = encode_request(&mut request, Vec::new())?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\ncontent-length: 0\r\n\r\n"
@@ -222,8 +219,7 @@ mod tests {
             read: b"testbodybody".as_slice(),
             trailers,
         }));
-        let mut buffer = Vec::new();
-        encode_request(&mut request, &mut buffer)?;
+        let buffer = encode_request(&mut request, Vec::new())?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "POST /foo/bar?query HTTP/1.1\r\nhost: example.com\r\ntransfer-encoding: chunked\r\n\r\nC\r\ntestbodybody\r\n0\r\ncontent-language: foo\r\n\r\n"
@@ -237,8 +233,7 @@ mod tests {
             .with_header(HeaderName::ACCEPT, "application/json")
             .unwrap()
             .with_body("test test2");
-        let mut buffer = Vec::new();
-        encode_response(&mut response, &mut buffer)?;
+        let buffer = encode_response(&mut response, Vec::new())?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "HTTP/1.1 200 OK\r\naccept: application/json\r\ncontent-length: 10\r\n\r\ntest test2"
@@ -249,8 +244,7 @@ mod tests {
     #[test]
     fn encode_response_not_found() -> Result<()> {
         let mut response = Response::builder(Status::NOT_FOUND).build();
-        let mut buffer = Vec::new();
-        encode_response(&mut response, &mut buffer)?;
+        let buffer = encode_response(&mut response, Vec::new())?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n"
@@ -261,8 +255,7 @@ mod tests {
     #[test]
     fn encode_response_custom_code() -> Result<()> {
         let mut response = Response::builder(Status::try_from(499).unwrap()).build();
-        let mut buffer = Vec::new();
-        encode_response(&mut response, &mut buffer)?;
+        let buffer = encode_response(&mut response, Vec::new())?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
             "HTTP/1.1 499 \r\ncontent-length: 0\r\n\r\n"
