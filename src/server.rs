@@ -3,24 +3,14 @@ use crate::io::{decode_request_body, decode_request_headers};
 use crate::model::{
     HeaderName, HeaderValue, InvalidHeader, Request, RequestBuilder, Response, Status,
 };
-#[cfg(feature = "rayon")]
-use rayon_core::ThreadPoolBuilder;
 use std::io::{copy, sink, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-#[cfg(feature = "rayon")]
-use std::thread::available_parallelism;
-#[cfg(not(feature = "rayon"))]
 use std::thread::{self, Builder};
 use std::time::Duration;
 
 /// An HTTP server.
 ///
-/// It currently provides two threading approaches:
-/// - If the `rayon` feature is enabled a thread pool is used.
-///   The number of threads can be set with the [`Server::set_num_threads`] feature.
-///   By default 4 times the number of available logical cores is used.
-/// - If the `rayon` feature is not enabled, a new thread is started on each connection and kept while the client connection is not closed.
-///   Use it at our own risks!
+/// It uses a very simple threading mechanism: a new thread is started on each connection and kept while the client connection is not closed.
 ///
 /// ```no_run
 /// use oxhttp::Server;
@@ -46,8 +36,6 @@ pub struct Server {
     on_request: Box<dyn Fn(&mut Request) -> Response + Send + Sync + 'static>,
     timeout: Option<Duration>,
     server: Option<HeaderValue>,
-    #[cfg(feature = "rayon")]
-    num_threads: usize,
 }
 
 impl Server {
@@ -58,8 +46,6 @@ impl Server {
             on_request: Box::new(on_request),
             timeout: None,
             server: None,
-            #[cfg(feature = "rayon")]
-            num_threads: available_parallelism().map_or(4, |c| c.get()) * 4,
         }
     }
 
@@ -79,87 +65,33 @@ impl Server {
         self.timeout = Some(timeout);
     }
 
-    /// Sets that the server should use a thread pool with this number of threads.
-    #[cfg(feature = "rayon")]
-    #[inline]
-    pub fn set_num_threads(&mut self, num_threads: usize) {
-        self.num_threads = num_threads;
-    }
-
     /// Runs the server by listening to `address`.
-    #[cfg(feature = "rayon")]
-    pub fn listen(&self, address: impl ToSocketAddrs) -> Result<()> {
-        let thread_pool = ThreadPoolBuilder::new()
-            .num_threads(self.num_threads)
-            .thread_name(|i| format!("OxHTTP server thread {i}"))
-            .panic_handler(|error| eprintln!("Panic on OxHTTP server thread: {error:?}"))
-            .build()
-            .map_err(|e| Error::new(ErrorKind::Other, e))?;
-        let listeners = open_tcp(address)?;
-        if self.num_threads < listeners.len() + 1 {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!("The thread pool only provides {} threads whereas the server is listening to {} connections. There are not enough threads for the server to work properly.", self.num_threads, listeners.len()),
-            ));
-        }
-        thread_pool.scope(|p| {
-            for listener in listeners {
-                p.spawn(move |p| {
-                    for stream in listener.incoming() {
-                        match stream {
-                            Ok(stream) => {
-                                p.spawn(move |_| {
-                                    let peer = match stream.peer_addr() {
-                                        Ok(peer) => peer,
-                                        Err(error) => {
-                                            eprintln!("OxHTTP TCP error when attempting to get the peer address: {error}");
-                                            return;
-                                        }
-                                    };
-                                    if let Err(error) = accept_request(stream, &*self.on_request, self.timeout, &self.server)
-                                    {
-                                        eprintln!(
-                                            "OxHTTP TCP error when writing response to {peer}: {error}"
-                                        );
-                                    }
-                                })
-                            },
-                            Err(error) => {
-                                eprintln!("OxHTTP TCP error when opening stream: {error}");
-                            }
-                        }
-                    }
-                })
-            }
-        });
-        Ok(())
-    }
-
-    /// Runs the server by listening to `address`.
-    #[cfg(not(feature = "rayon"))]
     pub fn listen(&self, address: impl ToSocketAddrs) -> Result<()> {
         thread::scope(|scope| {
             let timeout = self.timeout;
             let threads = open_tcp(address)?
                 .into_iter()
                 .map(|listener| {
-                    Builder::new().name(format!("Thread listening to {}", listener.local_addr()?)).spawn_scoped(scope, move || {
+                    let listener_addr = listener.local_addr()?;
+                    let thread_name = format!("{}: listener thread of OxHTTP", listener_addr);
+                    Builder::new().name(thread_name).spawn_scoped(scope, move || {
                         for stream in listener.incoming() {
                             match stream {
                                 Ok(stream) => {
-                                    if let Err(error) = Builder::new().spawn_scoped(scope, move || {
-                                        let peer = match stream.peer_addr() {
-                                            Ok(peer) => peer,
-                                            Err(error) => {
-                                                eprintln!("OxHTTP TCP error when attempting to get the peer address: {error}");
-                                                return;
-                                            }
-                                        };
+                                    let peer_addr = match stream.peer_addr() {
+                                        Ok(peer) => peer,
+                                        Err(error) => {
+                                            eprintln!("OxHTTP TCP error when attempting to get the peer address: {error}");
+                                            continue;
+                                        }
+                                    };
+                                    let thread_name = format!("{}: responding thread of OxHTTP", peer_addr);
+                                    if let Err(error) = Builder::new().name(thread_name).spawn_scoped(scope, move || {
                                         if let Err(error) =
                                             accept_request(stream, &*self.on_request, timeout, &self.server)
                                         {
                                             eprintln!(
-                                                "OxHTTP TCP error when writing response to {peer}: {error}"
+                                                "OxHTTP TCP error when writing response to {peer_addr}: {error}"
                                             )
                                         }
                                     }) {
