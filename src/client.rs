@@ -184,7 +184,10 @@ impl Client {
         // Additional headers
         {
             let headers = request.headers_mut();
-            headers.set(HeaderName::CONNECTION, HeaderValue::new_unchecked("close"));
+            headers.set(
+                HeaderName::CONNECTION,
+                HeaderValue::new_unchecked("close".as_bytes()),
+            );
             if let Some(user_agent) = &self.user_agent {
                 if !headers.contains(&HeaderName::USER_AGENT) {
                     headers.set(HeaderName::USER_AGENT, user_agent.clone())
@@ -196,7 +199,7 @@ impl Client {
             {
                 headers.set(
                     HeaderName::ACCEPT_ENCODING,
-                    HeaderValue::new_unchecked("gzip,deflate"),
+                    HeaderValue::new_unchecked("gzip,deflate".as_bytes()),
                 );
             }
         }

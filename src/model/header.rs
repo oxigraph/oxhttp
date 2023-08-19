@@ -36,7 +36,7 @@ impl Headers {
     pub fn append(&mut self, name: HeaderName, value: HeaderValue) {
         match self.0.entry(name) {
             Entry::Occupied(e) => {
-                let val = &mut e.into_mut().0;
+                let val = &mut e.into_mut().0.to_mut();
                 val.extend_from_slice(b", ");
                 val.extend_from_slice(&value.0);
             }
@@ -242,16 +242,16 @@ impl FromStr for HeaderName {
 
     #[inline]
     fn from_str(name: &str) -> Result<Self, InvalidHeader> {
-        Self::try_from(name)
+        Self::try_from(name.to_owned())
     }
 }
 
-impl TryFrom<&str> for HeaderName {
+impl TryFrom<&'static str> for HeaderName {
     type Error = InvalidHeader;
 
     #[inline]
-    fn try_from(value: &str) -> Result<Self, InvalidHeader> {
-        Self::try_from(value.to_owned())
+    fn try_from(value: &'static str) -> Result<Self, InvalidHeader> {
+        Self::try_from(Cow::Borrowed(value))
     }
 }
 
@@ -259,8 +259,19 @@ impl TryFrom<String> for HeaderName {
     type Error = InvalidHeader;
 
     #[inline]
-    fn try_from(mut name: String) -> Result<Self, InvalidHeader> {
-        name.make_ascii_lowercase(); // We normalize to lowercase
+    fn try_from(value: String) -> Result<Self, InvalidHeader> {
+        Self::try_from(Cow::Owned(value))
+    }
+}
+
+impl TryFrom<Cow<'static, str>> for HeaderName {
+    type Error = InvalidHeader;
+
+    #[inline]
+    fn try_from(mut name: Cow<'static, str>) -> Result<Self, InvalidHeader> {
+        if name.contains(|c: char| c.is_ascii_uppercase()) {
+            name.to_mut().make_ascii_lowercase(); // We normalize to lowercase
+        }
         if name.is_empty() {
             Err(InvalidHeader(InvalidHeaderAlt::EmptyName))
         } else {
@@ -270,12 +281,12 @@ impl TryFrom<String> for HeaderName {
         | '0'..='9' | 'a'..='z')
                 {
                     return Err(InvalidHeader(InvalidHeaderAlt::InvalidNameChar {
-                        name: name.to_owned(),
+                        name,
                         invalid_char: c,
                     }));
                 }
             }
-            Ok(Self(name.into()))
+            Ok(Self(name))
         }
     }
 }
@@ -315,11 +326,11 @@ impl<T: TryInto<HeaderName, Error = InvalidHeader>> IntoHeaderName for T {
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Hash, Default)]
-pub struct HeaderValue(Vec<u8>);
+pub struct HeaderValue(Cow<'static, [u8]>);
 
 impl HeaderValue {
     #[inline]
-    pub(crate) fn new_unchecked(value: impl Into<Vec<u8>>) -> Self {
+    pub(crate) fn new_unchecked(value: impl Into<Cow<'static, [u8]>>) -> Self {
         Self(value.into())
     }
 
@@ -356,11 +367,11 @@ impl FromStr for HeaderValue {
 
     #[inline]
     fn from_str(value: &str) -> Result<Self, InvalidHeader> {
-        Self::try_from(value)
+        Self::try_from(value.to_string().into_bytes())
     }
 }
 
-impl TryFrom<&str> for HeaderValue {
+impl TryFrom<&'static str> for HeaderValue {
     type Error = InvalidHeader;
 
     #[inline]
@@ -378,12 +389,24 @@ impl TryFrom<String> for HeaderValue {
     }
 }
 
-impl TryFrom<&[u8]> for HeaderValue {
+impl TryFrom<Cow<'static, str>> for HeaderValue {
     type Error = InvalidHeader;
 
     #[inline]
-    fn try_from(value: &[u8]) -> Result<Self, InvalidHeader> {
-        value.to_owned().try_into()
+    fn try_from(value: Cow<'static, str>) -> Result<Self, InvalidHeader> {
+        Self::try_from(match value {
+            Cow::Owned(value) => Cow::Owned(value.into_bytes()),
+            Cow::Borrowed(value) => Cow::Borrowed(value.as_bytes()),
+        })
+    }
+}
+
+impl TryFrom<&'static [u8]> for HeaderValue {
+    type Error = InvalidHeader;
+
+    #[inline]
+    fn try_from(value: &'static [u8]) -> Result<Self, InvalidHeader> {
+        Cow::Borrowed(value).try_into()
     }
 }
 
@@ -392,6 +415,15 @@ impl TryFrom<Vec<u8>> for HeaderValue {
 
     #[inline]
     fn try_from(value: Vec<u8>) -> Result<Self, InvalidHeader> {
+        Cow::<'static, [u8]>::Owned(value).try_into()
+    }
+}
+
+impl TryFrom<Cow<'static, [u8]>> for HeaderValue {
+    type Error = InvalidHeader;
+
+    #[inline]
+    fn try_from(value: Cow<'static, [u8]>) -> Result<Self, InvalidHeader> {
         // no tab or space at the beginning
         if let Some(c) = value.first().cloned() {
             if matches!(c, b'\t' | b' ') {
@@ -411,7 +443,7 @@ impl TryFrom<Vec<u8>> for HeaderValue {
             }
         }
         // no line jump
-        for c in &value {
+        for c in value.iter() {
             if matches!(*c, b'\r' | b'\n') {
                 return Err(InvalidHeader(InvalidHeaderAlt::InvalidValueByte {
                     value: value.clone(),
@@ -509,8 +541,14 @@ pub struct InvalidHeader(InvalidHeaderAlt);
 #[derive(Debug, Clone)]
 enum InvalidHeaderAlt {
     EmptyName,
-    InvalidNameChar { name: String, invalid_char: char },
-    InvalidValueByte { value: Vec<u8>, invalid_byte: u8 },
+    InvalidNameChar {
+        name: Cow<'static, str>,
+        invalid_char: char,
+    },
+    InvalidValueByte {
+        value: Cow<'static, [u8]>,
+        invalid_byte: u8,
+    },
 }
 
 impl fmt::Display for InvalidHeader {
