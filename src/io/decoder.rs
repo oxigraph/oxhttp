@@ -84,15 +84,16 @@ pub fn decode_request_headers(
     for header in parsed_request.headers {
         request.headers_mut().append(
             HeaderName::new_unchecked(header.name.to_ascii_lowercase()),
-            HeaderValue::new_unchecked(header.value),
+            HeaderValue::new_unchecked(header.value.to_vec()),
         );
     }
     if parsed_request.version == Some(0) {
         // Hack to fallback to default HTTP 1.0 behavior of closing connections
         if !request.headers().contains(&HeaderName::CONNECTION) {
-            request
-                .headers_mut()
-                .append(HeaderName::CONNECTION, HeaderValue::new_unchecked("close"))
+            request.headers_mut().append(
+                HeaderName::CONNECTION,
+                HeaderValue::new_unchecked("close".as_bytes()),
+            )
         }
     }
     Ok(request)
@@ -133,7 +134,7 @@ pub fn decode_response(mut reader: impl BufRead + 'static) -> Result<Response> {
     for header in parsed_response.headers {
         response.headers_mut().append(
             HeaderName::new_unchecked(header.name.to_ascii_lowercase()),
-            HeaderValue::new_unchecked(header.value),
+            HeaderValue::new_unchecked(header.value.to_vec()),
         );
     }
 
@@ -318,7 +319,7 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
                 for trailer in parsed_trailers {
                     trailers.append(
                         HeaderName::new_unchecked(trailer.name.to_ascii_lowercase()),
-                        HeaderValue::new_unchecked(trailer.value),
+                        HeaderValue::new_unchecked(trailer.value.to_vec()),
                     );
                 }
                 self.trailers = Some(trailers);
@@ -636,7 +637,7 @@ mod tests {
         let response = decode_response(b"HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-encoding: foo\r\ncontent-length: 5\r\n\r\nfoooo".as_slice())?;
         assert_eq!(
             response.headers().get(&HeaderName::CONTENT_ENCODING),
-            Some(&HeaderValue::new_unchecked("foo"))
+            Some(&HeaderValue::new_unchecked("foo".as_bytes()))
         );
         assert_eq!(response.into_body().to_string()?, "foooo");
         Ok(())
