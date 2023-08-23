@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.7] - 2023-08-23
+
+### Changed
+- Upgrades `rustls` dependency to 0.21.
+
+
 ## [0.1.6] - 2023-03-18
 
 ### Added
