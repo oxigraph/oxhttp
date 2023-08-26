@@ -90,7 +90,7 @@ impl Body {
 
     /// Reads the full body into a vector.
     ///
-    /// WARNING: Beware of the body size!
+    /// <div class="warning">Beware of the body size!</div>
     ///
     /// ```
     /// use oxhttp::model::Body;
@@ -109,7 +109,7 @@ impl Body {
 
     /// Reads the full body into a string.
     ///
-    /// WARNING: Beware of the body size!
+    /// <div class="warning">Beware of the body size!</div>    
     ///
     /// ```
     /// use oxhttp::model::Body;
