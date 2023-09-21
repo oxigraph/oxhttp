@@ -5,8 +5,6 @@ use crate::model::{
     HeaderName, HeaderValue, InvalidHeader, Method, Request, Response, Status, Url,
 };
 use crate::utils::{invalid_data_error, invalid_input_error};
-#[cfg(any(feature = "native-tls", feature = "rustls"))]
-use lazy_static::lazy_static;
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
 #[cfg(all(feature = "rustls", feature = "webpki-roots"))]
@@ -19,59 +17,11 @@ use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{SocketAddr, TcpStream};
 #[cfg(feature = "rustls")]
 use std::sync::Arc;
+#[cfg(any(feature = "native-tls", feature = "rustls"))]
+use std::sync::OnceLock;
 use std::time::Duration;
 #[cfg(feature = "webpki-roots")]
 use webpki_roots::TLS_SERVER_ROOTS;
-
-#[cfg(feature = "native-tls")]
-lazy_static! {
-    static ref TLS_CONNECTOR: TlsConnector = {
-        match TlsConnector::new() {
-            Ok(connector) => connector,
-            Err(e) => panic!("Error while loading TLS configuration: {}", e),
-        }
-    };
-}
-
-#[cfg(feature = "rustls")]
-lazy_static! {
-    static ref RUSTLS_CONFIG: Arc<ClientConfig> = {
-        let mut root_store = RootCertStore::empty();
-
-        #[cfg(feature = "rustls-native-certs")]
-        {
-            match load_native_certs() {
-                Ok(certs) => {
-                    for cert in certs {
-                        root_store.add_parsable_certificates(&[cert.0]);
-                    }
-                }
-                Err(e) => panic!("Error loading TLS certificates: {}", e),
-            }
-        }
-        #[cfg(feature = "webpki-roots")]
-        {
-            root_store.add_trust_anchors(TLS_SERVER_ROOTS.iter().map(|trust_anchor| {
-                OwnedTrustAnchor::from_subject_spki_name_constraints(
-                    trust_anchor.subject,
-                    trust_anchor.spki,
-                    trust_anchor.name_constraints,
-                )
-            }));
-        }
-        #[cfg(not(any(feature = "rustls-native-certs", feature = "webpki-roots")))]
-        compile_error!(
-            "rustls-native-certs or webpki-roots must be installed to use OxHTTP with Rustls"
-        );
-
-        Arc::new(
-            ClientConfig::builder()
-                .with_safe_defaults()
-                .with_root_certificates(root_store)
-                .with_no_client_auth(),
-        )
-    };
-}
 
 /// An HTTP client.
 ///
@@ -222,9 +172,15 @@ impl Client {
             "https" => {
                 #[cfg(feature = "native-tls")]
                 {
+                    static TLS_CONNECTOR: OnceLock<TlsConnector> = OnceLock::new();
+
                     let addresses = get_and_validate_socket_addresses(request.url(), 443)?;
                     let stream = self.connect(&addresses)?;
                     let stream = TLS_CONNECTOR
+                        .get_or_init(|| match TlsConnector::new() {
+                            Ok(connector) => connector,
+                            Err(e) => panic!("Error while loading TLS configuration: {}", e), // TODO: use get_or_try_init
+                        })
                         .connect(host, stream)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
                     let stream = encode_request(request, BufWriter::new(stream))?
@@ -234,9 +190,52 @@ impl Client {
                 }
                 #[cfg(feature = "rustls")]
                 {
+                    static RUSTLS_CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
+
+                    let rustls_config = RUSTLS_CONFIG.get_or_init(|| {
+                        let mut root_store = RootCertStore::empty();
+
+                        #[cfg(feature = "rustls-native-certs")]
+                        {
+                            match load_native_certs() {
+                                Ok(certs) => {
+                                    for cert in certs {
+                                        root_store.add_parsable_certificates(&[cert.0]);
+                                    }
+                                }
+                                Err(e) => panic!("Error loading TLS certificates: {}", e),
+                            }
+                        }
+                        #[cfg(feature = "webpki-roots")]
+                        {
+                            root_store.add_trust_anchors(TLS_SERVER_ROOTS.iter().map(
+                                |trust_anchor| {
+                                    OwnedTrustAnchor::from_subject_spki_name_constraints(
+                                        trust_anchor.subject,
+                                        trust_anchor.spki,
+                                        trust_anchor.name_constraints,
+                                    )
+                                },
+                            ));
+                        }
+                        #[cfg(not(any(
+                            feature = "rustls-native-certs",
+                            feature = "webpki-roots"
+                        )))]
+                        compile_error!(
+            "rustls-native-certs or webpki-roots must be installed to use OxHTTP with Rustls"
+        );
+
+                        Arc::new(
+                            ClientConfig::builder()
+                                .with_safe_defaults()
+                                .with_root_certificates(root_store)
+                                .with_no_client_auth(),
+                        )
+                    });
                     let addresses = get_and_validate_socket_addresses(request.url(), 443)?;
                     let dns_name = ServerName::try_from(host).map_err(invalid_input_error)?;
-                    let connection = ClientConnection::new(RUSTLS_CONFIG.clone(), dns_name)
+                    let connection = ClientConnection::new(Arc::clone(rustls_config), dns_name)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
                     let stream = StreamOwned::new(connection, self.connect(&addresses)?);
                     let stream = encode_request(request, BufWriter::new(stream))?
@@ -256,23 +255,27 @@ impl Client {
 
     fn connect(&self, addresses: &[SocketAddr]) -> Result<TcpStream> {
         let stream = if let Some(timeout) = self.timeout {
-            #[allow(clippy::manual_try_fold)]
-            addresses.iter().fold(
-                Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    "Not able to resolve the provide addresses",
-                )),
-                |e, addr| match e {
-                    Ok(stream) => Ok(stream),
-                    Err(_) => TcpStream::connect_timeout(addr, timeout),
-                },
-            )
+            Self::connect_timeout(addresses, timeout)
         } else {
             TcpStream::connect(addresses)
         }?;
         stream.set_read_timeout(self.timeout)?;
         stream.set_write_timeout(self.timeout)?;
         Ok(stream)
+    }
+
+    fn connect_timeout(addresses: &[SocketAddr], timeout: Duration) -> Result<TcpStream> {
+        let mut error = Error::new(
+            ErrorKind::InvalidInput,
+            "Not able to resolve the provide addresses",
+        );
+        for address in addresses {
+            match TcpStream::connect_timeout(address, timeout) {
+                Ok(stream) => return Ok(stream),
+                Err(e) => error = e,
+            }
+        }
+        Err(error)
     }
 }
 

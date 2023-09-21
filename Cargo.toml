@@ -11,12 +11,11 @@ description = """
 Very simple implementation of HTTP 1.1 (both client and server)
 """
 edition = "2021"
-rust-version = "1.67"
+rust-version = "1.70"
 
 [dependencies]
 flate2 = { version = "1.0.27", optional = true }
 httparse = "1.8.0"
-lazy_static = "1.4.0"
 native-tls = { version = "0.2.11", optional = true }
 rustls = { version = "0.21.7", optional = true }
 rustls-native-certs = { version = "0.6.3", optional = true }
