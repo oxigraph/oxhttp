@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.0-alpha.1] - 2023-09-23
+
+### Added
+- When the `flate2` crate is installed, the HTTP client and server are able to decode bodies with `Content-Encoding` set to `gzip` and `deflate` (no encoding yet).
+- `client` and  `server` features to enable the HTTP client and server. They are both enabled by default.
+- `Server::with_max_num_threads` allows to set an upper bound to the number of threads running at the same time.
+
+### Removed
+- Rayon-based thread pool.
+
+### Changed
+- The `rustls` feature has been split into `rustls-native` and `rustls-webpki` to either rust the platform certificates or the ones from the [Common CA Database](https://www.ccadb.org/).
+- All the `set_` methods on `Client` and `Server` have been renamed to `with_` and now takes and returns the mutated objects by value (builder pattern).
+- Upgrades minimum supported Rust version to 1.70.
+- Upgrades `webpki-roots` dependency to 0.25.
+
+
+## [0.1.7] - 2023-08-23
+
+### Changed
+- Upgrades `rustls` dependency to 0.21.
+
+
 ## [0.1.6] - 2023-03-18
 
 ### Added
