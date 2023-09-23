@@ -31,7 +31,7 @@ use webpki_roots::TLS_SERVER_ROOTS;
 ///
 /// If the `flate2` feature is enabled, the client will automatically decode `gzip` and `deflate` content-encodings.
 ///
-/// The client does not follow redirections by default. Use [`Client::set_redirection_limit`] to set a limit to the number of consecutive redirections the server should follow.
+/// The client does not follow redirections by default. Use [`Client::with_redirection_limit`] to set a limit to the number of consecutive redirections the server should follow.
 ///
 /// Missing: HSTS support, authentication and keep alive.
 ///
@@ -62,25 +62,27 @@ impl Client {
 
     /// Sets the global timeout value (applies to both read, write and connection).
     #[inline]
-    pub fn set_global_timeout(&mut self, timeout: Duration) {
+    pub fn with_global_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
     }
 
     /// Sets the default value for the [`User-Agent`](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#field.user-agent) header.
     #[inline]
-    pub fn set_user_agent(
-        &mut self,
+    pub fn with_user_agent(
+        mut self,
         user_agent: impl Into<String>,
-    ) -> std::result::Result<(), InvalidHeader> {
+    ) -> std::result::Result<Self, InvalidHeader> {
         self.user_agent = Some(HeaderValue::try_from(user_agent.into())?);
-        Ok(())
+        Ok(self)
     }
 
     /// Sets the number of time a redirection should be followed.
     /// By default the redirections are not followed (limit = 0).
     #[inline]
-    pub fn set_redirection_limit(&mut self, limit: usize) {
+    pub fn with_redirection_limit(mut self, limit: usize) -> Self {
         self.redirection_limit = limit;
+        self
     }
 
     pub fn request(&self, mut request: Request) -> Result<Response> {
@@ -325,9 +327,10 @@ mod tests {
 
     #[test]
     fn test_http_get_ok_with_user_agent_and_timeout() -> Result<()> {
-        let mut client = Client::new();
-        client.set_user_agent("OxHTTP/1.0").unwrap();
-        client.set_global_timeout(Duration::from_secs(5));
+        let client = Client::new()
+            .with_user_agent("OxHTTP/1.0")
+            .unwrap()
+            .with_global_timeout(Duration::from_secs(5));
         let response = client.request(
             Request::builder(Method::GET, "http://example.com".parse().unwrap()).build(),
         )?;
@@ -418,8 +421,7 @@ mod tests {
     #[cfg(any(feature = "native-tls", feature = "rustls"))]
     #[test]
     fn test_redirection() -> Result<()> {
-        let mut client = Client::new();
-        client.set_redirection_limit(5);
+        let client = Client::new().with_redirection_limit(5);
         let response = client.request(
             Request::builder(Method::GET, "http://wikipedia.org".parse().unwrap()).build(),
         )?;

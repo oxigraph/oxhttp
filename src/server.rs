@@ -13,7 +13,7 @@ use std::time::Duration;
 /// An HTTP server.
 ///
 /// It uses a very simple threading mechanism: a new thread is started on each connection and closed when the client connection is closed.
-/// To avoid crashes it is possible to set an upper bound to the number of threads that are used using the [`set_max_num_threads`] function.
+/// To avoid crashes it is possible to set an upper bound to the number of threads that are used using the [`Server::with_max_num_threads`] function.
 ///
 /// ```no_run
 /// use oxhttp::Server;
@@ -29,7 +29,9 @@ use std::time::Duration;
 ///     }
 /// });
 /// // Raise a timeout error if the client does not respond after 10s.
-/// server.set_global_timeout(Duration::from_secs(10));
+/// server = server.with_global_timeout(Duration::from_secs(10));
+/// // Limits the max number of threads to 128.
+/// server = server.with_max_num_threads(128);
 /// // Listen to localhost:8080
 /// server.listen(("localhost", 8080))?;
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
@@ -56,24 +58,26 @@ impl Server {
 
     /// Sets the default value for the [`Server`](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#field.server) header.
     #[inline]
-    pub fn set_server_name(
-        &mut self,
+    pub fn with_server_name(
+        mut self,
         server: impl Into<String>,
-    ) -> std::result::Result<(), InvalidHeader> {
+    ) -> std::result::Result<Self, InvalidHeader> {
         self.server = Some(HeaderValue::try_from(server.into())?);
-        Ok(())
+        Ok(self)
     }
 
     /// Sets the global timeout value (applies to both read and write).
     #[inline]
-    pub fn set_global_timeout(&mut self, timeout: Duration) {
+    pub fn with_global_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
     }
 
     /// Sets the number maximum number of threads this server can spawn.
     #[inline]
-    pub fn set_max_num_threads(&mut self, max_num_thread: usize) {
+    pub fn with_max_num_threads(mut self, max_num_thread: usize) -> Self {
         self.max_num_thread = Some(max_num_thread);
+        self
     }
 
     /// Runs the server by listening to `address`.
@@ -362,16 +366,18 @@ mod tests {
         responses: impl IntoIterator<Item = &'static str>,
     ) -> Result<()> {
         spawn(move || {
-            let mut server = Server::new(|request| {
+            Server::new(|request| {
                 if request.url().path() == "/" {
                     Response::builder(Status::OK).with_body("home")
                 } else {
                     Response::builder(Status::NOT_FOUND).build()
                 }
-            });
-            server.set_server_name("OxHTTP/1.0").unwrap();
-            server.set_global_timeout(Duration::from_secs(1));
-            server.listen(("localhost", server_port)).unwrap();
+            })
+            .with_server_name("OxHTTP/1.0")
+            .unwrap()
+            .with_global_timeout(Duration::from_secs(1))
+            .listen(("localhost", server_port))
+            .unwrap();
         });
         sleep(Duration::from_millis(100)); // Makes sure the server is up
         let mut stream = TcpStream::connect((request_host, server_port))?;
@@ -390,11 +396,13 @@ mod tests {
         let request = b"GET / HTTP/1.1\nhost: localhost:9999\n\n";
         let response = b"HTTP/1.1 200 OK\r\nserver: OxHTTP/1.0\r\ncontent-length: 4\r\n\r\nhome";
         spawn(move || {
-            let mut server = Server::new(|_| Response::builder(Status::OK).with_body("home"));
-            server.set_server_name("OxHTTP/1.0").unwrap();
-            server.set_global_timeout(Duration::from_secs(1));
-            server.set_max_num_threads(2);
-            server.listen(("localhost", server_port)).unwrap();
+            Server::new(|_| Response::builder(Status::OK).with_body("home"))
+                .with_server_name("OxHTTP/1.0")
+                .unwrap()
+                .with_global_timeout(Duration::from_secs(1))
+                .with_max_num_threads(2)
+                .listen(("localhost", server_port))
+                .unwrap();
         });
         sleep(Duration::from_millis(100)); // Makes sure the server is up
         let streams = (0..128)
