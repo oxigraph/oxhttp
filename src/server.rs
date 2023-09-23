@@ -3,14 +3,17 @@ use crate::io::{decode_request_body, decode_request_headers};
 use crate::model::{
     HeaderName, HeaderValue, InvalidHeader, Request, RequestBuilder, Response, Status,
 };
+use std::fmt;
 use std::io::{copy, sink, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, Builder};
 use std::time::Duration;
 
 /// An HTTP server.
 ///
-/// It uses a very simple threading mechanism: a new thread is started on each connection and kept while the client connection is not closed.
+/// It uses a very simple threading mechanism: a new thread is started on each connection and closed when the client connection is closed.
+/// To avoid crashes it is possible to set an upper bound to the number of threads that are used using the [`set_max_num_threads`] function.
 ///
 /// ```no_run
 /// use oxhttp::Server;
@@ -36,6 +39,7 @@ pub struct Server {
     on_request: Box<dyn Fn(&mut Request) -> Response + Send + Sync + 'static>,
     timeout: Option<Duration>,
     server: Option<HeaderValue>,
+    max_num_thread: Option<usize>,
 }
 
 impl Server {
@@ -46,6 +50,7 @@ impl Server {
             on_request: Box::new(on_request),
             timeout: None,
             server: None,
+            max_num_thread: None,
         }
     }
 
@@ -65,15 +70,23 @@ impl Server {
         self.timeout = Some(timeout);
     }
 
+    /// Sets the number maximum number of threads this server can spawn.
+    #[inline]
+    pub fn set_max_num_threads(&mut self, max_num_thread: usize) {
+        self.max_num_thread = Some(max_num_thread);
+    }
+
     /// Runs the server by listening to `address`.
     pub fn listen(&self, address: impl ToSocketAddrs) -> Result<()> {
         thread::scope(|scope| {
             let timeout = self.timeout;
-            let threads = open_tcp(address)?
+            let thread_limit = self.max_num_thread.map(Semaphore::new);
+            let listener_threads = open_tcp(address)?
                 .into_iter()
                 .map(|listener| {
                     let listener_addr = listener.local_addr()?;
                     let thread_name = format!("{}: listener thread of OxHTTP", listener_addr);
+                    let thread_limit = thread_limit.clone();
                     Builder::new().name(thread_name).spawn_scoped(scope, move || {
                         for stream in listener.incoming() {
                             match stream {
@@ -86,15 +99,19 @@ impl Server {
                                         }
                                     };
                                     let thread_name = format!("{}: responding thread of OxHTTP", peer_addr);
-                                    if let Err(error) = Builder::new().name(thread_name).spawn_scoped(scope, move || {
-                                        if let Err(error) =
-                                            accept_request(stream, &*self.on_request, timeout, &self.server)
-                                        {
-                                            eprintln!(
-                                                "OxHTTP TCP error when writing response to {peer_addr}: {error}"
-                                            )
+                                    let thread_guard = thread_limit.as_ref().map(|s| s.lock());
+                                    if let Err(error) = Builder::new().name(thread_name).spawn_scoped(scope,
+                                        move || {
+                                            if let Err(error) =
+                                                accept_request(stream, &*self.on_request, timeout, &self.server)
+                                            {
+                                                eprintln!(
+                                                    "OxHTTP TCP error when writing response to {peer_addr}: {error}"
+                                                )
+                                            }
+                                            drop(thread_guard);
                                         }
-                                    }) {
+                                    ) {
                                         eprintln!("OxHTTP thread spawn error: {error}");
                                     }
                                 }
@@ -106,10 +123,17 @@ impl Server {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            for thread in threads {
-                thread
-                    .join()
-                    .map_err(|_| Error::new(ErrorKind::Other, "The server thread panicked"))?;
+            for thread in listener_threads {
+                thread.join().map_err(|e| {
+                    Error::new(
+                        ErrorKind::Other,
+                        if let Ok(e) = e.downcast::<&dyn fmt::Display>() {
+                            format!("The server thread panicked with error: {e}")
+                        } else {
+                            "The server thread panicked with an unknown error".into()
+                        },
+                    )
+                })?;
             }
             Ok(())
         })
@@ -248,6 +272,53 @@ fn build_text_response(status: Status, text: String) -> Response {
         .with_body(text)
 }
 
+/// Dumb semaphore allowing to overflow capacity
+#[derive(Clone)]
+struct Semaphore {
+    inner: Arc<InnerSemaphore>,
+}
+
+struct InnerSemaphore {
+    count: Mutex<usize>,
+    capacity: usize,
+    condvar: Condvar,
+}
+
+impl Semaphore {
+    fn new(capacity: usize) -> Self {
+        Self {
+            inner: Arc::new(InnerSemaphore {
+                count: Mutex::new(0),
+                capacity,
+                condvar: Condvar::new(),
+            }),
+        }
+    }
+
+    fn lock(&self) -> SemaphoreGuard {
+        let data = &self.inner;
+        *data
+            .condvar
+            .wait_while(data.count.lock().unwrap(), |count| *count >= data.capacity)
+            .unwrap() += 1;
+        SemaphoreGuard {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+struct SemaphoreGuard {
+    inner: Arc<InnerSemaphore>,
+}
+
+impl Drop for SemaphoreGuard {
+    fn drop(&mut self) {
+        let data = &self.inner;
+        *data.count.lock().unwrap() -= 1;
+        data.condvar.notify_one();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,6 +380,34 @@ mod tests {
             let mut output = vec![b'\0'; response.len()];
             stream.read_exact(&mut output)?;
             assert_eq!(String::from_utf8(output).unwrap(), response);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_thread_limit() -> Result<()> {
+        let server_port = 9996;
+        let request = b"GET / HTTP/1.1\nhost: localhost:9999\n\n";
+        let response = b"HTTP/1.1 200 OK\r\nserver: OxHTTP/1.0\r\ncontent-length: 4\r\n\r\nhome";
+        spawn(move || {
+            let mut server = Server::new(|_| Response::builder(Status::OK).with_body("home"));
+            server.set_server_name("OxHTTP/1.0").unwrap();
+            server.set_global_timeout(Duration::from_secs(1));
+            server.set_max_num_threads(2);
+            server.listen(("localhost", server_port)).unwrap();
+        });
+        sleep(Duration::from_millis(100)); // Makes sure the server is up
+        let streams = (0..128)
+            .map(|_| {
+                let mut stream = TcpStream::connect(("localhost", server_port))?;
+                stream.write_all(request)?;
+                Ok(stream)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        for mut stream in streams {
+            let mut output = vec![b'\0'; response.len()];
+            stream.read_exact(&mut output)?;
+            assert_eq!(output, response);
         }
         Ok(())
     }
