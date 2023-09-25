@@ -52,8 +52,8 @@ let mut server = Server::new(|request| {
 });
 // Raise a timeout error if the client does not respond after 10s.
 server = server.with_global_timeout(Duration::from_secs(10));
-// Limits the max number of threads to 128.
-server = server.with_max_num_threads(128);
+// Limits the max number of concurrent connections to 128.
+server = server.with_max_concurrent_connections(128);
 // Listen to localhost:8080
 server.listen(("localhost", 8080)).unwrap();
 ```

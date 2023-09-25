@@ -13,7 +13,7 @@ use std::time::Duration;
 /// An HTTP server.
 ///
 /// It uses a very simple threading mechanism: a new thread is started on each connection and closed when the client connection is closed.
-/// To avoid crashes it is possible to set an upper bound to the number of threads that are used using the [`Server::with_max_num_threads`] function.
+/// To avoid crashes it is possible to set an upper bound to the number of concurrent connections using the [`Server::with_max_concurrent_connections`] function.
 ///
 /// ```no_run
 /// use oxhttp::Server;
@@ -30,8 +30,8 @@ use std::time::Duration;
 /// });
 /// // Raise a timeout error if the client does not respond after 10s.
 /// server = server.with_global_timeout(Duration::from_secs(10));
-/// // Limits the max number of threads to 128.
-/// server = server.with_max_num_threads(128);
+/// // Limits the number of concurrent connections to 128.
+/// server = server.with_max_concurrent_connections(128);
 /// // Listen to localhost:8080
 /// server.listen(("localhost", 8080))?;
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
@@ -75,7 +75,7 @@ impl Server {
 
     /// Sets the number maximum number of threads this server can spawn.
     #[inline]
-    pub fn with_max_num_threads(mut self, max_num_thread: usize) -> Self {
+    pub fn with_max_concurrent_connections(mut self, max_num_thread: usize) -> Self {
         self.max_num_thread = Some(max_num_thread);
         self
     }
@@ -400,7 +400,7 @@ mod tests {
                 .with_server_name("OxHTTP/1.0")
                 .unwrap()
                 .with_global_timeout(Duration::from_secs(1))
-                .with_max_num_threads(2)
+                .with_max_concurrent_connections(2)
                 .listen(("localhost", server_port))
                 .unwrap();
         });
