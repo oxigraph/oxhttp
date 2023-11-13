@@ -38,6 +38,7 @@ It is still a work in progress. Use at your own risks behind a reverse proxy!
 
 Example:
 ```rust no_run
+use std::net::{Ipv4Addr, Ipv6Addr};
 use oxhttp::Server;
 use oxhttp::model::{Response, Status};
 use std::time::Duration;
@@ -50,12 +51,14 @@ let mut server = Server::new(|request| {
         Response::builder(Status::NOT_FOUND).build()
     }
 });
+// We bind the server to localhost on both IPv4 and v6
+server = server.bind((Ipv4Addr::LOCALHOST, 8080)).bind((Ipv6Addr::LOCALHOST, 8080));
 // Raise a timeout error if the client does not respond after 10s.
 server = server.with_global_timeout(Duration::from_secs(10));
 // Limits the max number of concurrent connections to 128.
 server = server.with_max_concurrent_connections(128);
-// Listen to localhost:8080
-server.listen(("localhost", 8080)).unwrap();
+// We spawn the server and block on it
+server.spawn().unwrap().join().unwrap();
 ```
 
 ## License

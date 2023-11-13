@@ -22,4 +22,4 @@ mod utils;
 #[cfg(feature = "client")]
 pub use client::Client;
 #[cfg(feature = "server")]
-pub use server::Server;
+pub use server::{ListeningServer, Server};
