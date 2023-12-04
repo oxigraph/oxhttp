@@ -7,12 +7,12 @@ use crate::model::{
 use crate::utils::{invalid_data_error, invalid_input_error};
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
-#[cfg(all(feature = "rustls", feature = "webpki-roots"))]
-use rustls::OwnedTrustAnchor;
 #[cfg(feature = "rustls")]
-use rustls::{ClientConfig, ClientConnection, RootCertStore, ServerName, StreamOwned};
+use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 #[cfg(feature = "rustls-native-certs")]
 use rustls_native_certs::load_native_certs;
+#[cfg(feature = "rustls")]
+use rustls_pki_types::ServerName;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{SocketAddr, TcpStream};
 #[cfg(feature = "rustls")]
@@ -195,48 +195,38 @@ impl Client {
                     static RUSTLS_CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
 
                     let rustls_config = RUSTLS_CONFIG.get_or_init(|| {
-                        let mut root_store = RootCertStore::empty();
-
                         #[cfg(feature = "rustls-native-certs")]
-                        {
-                            match load_native_certs() {
-                                Ok(certs) => {
-                                    for cert in certs {
-                                        root_store.add_parsable_certificates(&[cert.0]);
-                                    }
-                                }
-                                Err(e) => panic!("Error loading TLS certificates: {}", e),
+                        let root_store = {
+                            let mut root_store = RootCertStore::empty();
+                            for cert in load_native_certs()
+                                .unwrap_or_else(|e| panic!("Error loading TLS certificates from the OS: {}", e))
+                            {
+                                root_store.add(cert).unwrap();
                             }
-                        }
+                            root_store
+                        };
+
                         #[cfg(feature = "webpki-roots")]
-                        {
-                            root_store.add_trust_anchors(TLS_SERVER_ROOTS.iter().map(
-                                |trust_anchor| {
-                                    OwnedTrustAnchor::from_subject_spki_name_constraints(
-                                        trust_anchor.subject,
-                                        trust_anchor.spki,
-                                        trust_anchor.name_constraints,
-                                    )
-                                },
-                            ));
-                        }
+                        let root_store = RootCertStore { roots: TLS_SERVER_ROOTS.to_vec() };
+
                         #[cfg(not(any(
                             feature = "rustls-native-certs",
                             feature = "webpki-roots"
                         )))]
                         compile_error!(
-            "rustls-native-certs or webpki-roots must be installed to use OxHTTP with Rustls"
-        );
+                            "rustls-native-certs or webpki-roots must be installed to use OxHTTP with Rustls"
+                        );
 
                         Arc::new(
                             ClientConfig::builder()
-                                .with_safe_defaults()
                                 .with_root_certificates(root_store)
                                 .with_no_client_auth(),
                         )
                     });
                     let addresses = get_and_validate_socket_addresses(request.url(), 443)?;
-                    let dns_name = ServerName::try_from(host).map_err(invalid_input_error)?;
+                    let dns_name = ServerName::try_from(host)
+                        .map_err(invalid_input_error)?
+                        .to_owned();
                     let connection = ClientConnection::new(Arc::clone(rustls_config), dns_name)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
                     let stream = StreamOwned::new(connection, self.connect(&addresses)?);
