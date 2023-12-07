@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0-alpha.3] - 2023-12-07
+
+### Changed
+- Upgrades `rustls` to 0.22 and its dependencies to compatible versions.
+- Relaxes dependency requirements on `flate2`
+
+
 ## [0.2.0-alpha.2] - 2023-11-18
 
 ### Added
