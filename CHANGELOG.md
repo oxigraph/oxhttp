@@ -17,7 +17,7 @@
 - `Server.listen` function that is now replaced by `Server.bind(address).spawn().join()`.
 
 ### Changed
-- Renames `Server.with_max_concurrent_connections` to `Server.with_max_concurrent_connections`
+- Renames `Server.max_num_threads` to `Server.with_max_concurrent_connections`
 
 
 ## [0.2.0-alpha.1] - 2023-09-23
