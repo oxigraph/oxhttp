@@ -27,7 +27,20 @@ use webpki_roots::TLS_SERVER_ROOTS;
 ///
 /// It aims at following the basic concepts of the [Web Fetch standard](https://fetch.spec.whatwg.org/) without the bits specific to web browsers (context, CORS...).
 ///
-/// HTTPS is supported behind the disabled by default `native-tls` feature (to use the current system native implementation), or `rustls-webpki` feature (to use [Rustls](https://github.com/rustls/rustls) with [Common CA Database](https://www.ccadb.org/)),  or `rustls-native` feature (to use [Rustls](https://github.com/rustls/rustls) with host certificates).
+/// HTTPS is supported behind the disabled by default features.
+/// To enable it you need to enable one of the following features:
+///
+/// * `native-tls` to use the current system native implementation.
+/// * `rustls-ring-webpki` to use [Rustls](https://github.com/rustls/rustls) with
+///   the [Ring](https://github.com/briansmith/ring) cryptographic library and
+///   the [Common CA Database](https://www.ccadb.org/).
+/// * `rustls-ring-native` to use [Rustls](https://github.com/rustls/rustls) with
+///   the [Ring](https://github.com/briansmith/ring) cryptographic library and the host certificates.
+/// * `rustls-aws-lc-webpki` to use [Rustls](https://github.com/rustls/rustls) with
+///   the [AWS Libcrypto for Rust](https://github.com/aws/aws-lc-rs/ring) and
+///   the [Common CA Database](https://www.ccadb.org/).
+/// * `rustls-aws-lc-native` to use [Rustls](https://github.com/rustls/rustls) with
+///   the [AWS Libcrypto for Rust](https://github.com/aws/aws-lc-rs/ring) and the host certificates.
 ///
 /// If the `flate2` feature is enabled, the client will automatically decode `gzip` and `deflate` content-encodings.
 ///

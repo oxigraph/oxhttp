@@ -17,16 +17,18 @@ rust-version = "1.70"
 flate2 = { version = "1", optional = true }
 httparse = "1.8"
 native-tls = { version = "0.2.11", optional = true }
-rustls = { version = ">=0.22,<0.24", optional = true }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["std"] }
 rustls-native-certs = { version = "0.7", optional = true }
-rustls-pki-types = { version = "1", optional = true }
+rustls-pki-types = { version = "1.2", optional = true }
 webpki-roots = { version = "0.26", optional = true }
 url = "2.4"
 
 [features]
 default = ["client", "server"]
-rustls-native = ["rustls", "rustls-native-certs", "rustls-pki-types"]
-rustls-webpki = ["rustls", "rustls-pki-types", "webpki-roots"]
+rustls-ring-native = ["rustls/ring", "rustls-native-certs", "rustls-pki-types"]
+rustls-ring-webpki = ["rustls/ring", "rustls-pki-types", "webpki-roots"]
+rustls-aws-lc-native = ["rustls/aws_lc_rs", "rustls-native-certs", "rustls-pki-types"]
+rustls-aws-lc-webpki = ["rustls/aws_lc_rs", "rustls-pki-types", "webpki-roots"]
 client = []
 server = []
 
