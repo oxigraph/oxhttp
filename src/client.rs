@@ -7,20 +7,20 @@ use crate::model::{
 use crate::utils::{invalid_data_error, invalid_input_error};
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
-#[cfg(feature = "rustls")]
+#[cfg(all(feature = "rustls", not(feature = "native-tls")))]
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
-#[cfg(feature = "rustls-native-certs")]
+#[cfg(all(feature = "rustls-native-certs", not(feature = "native-tls")))]
 use rustls_native_certs::load_native_certs;
-#[cfg(feature = "rustls")]
+#[cfg(all(feature = "rustls", not(feature = "native-tls")))]
 use rustls_pki_types::ServerName;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{SocketAddr, TcpStream};
-#[cfg(feature = "rustls")]
+#[cfg(all(feature = "rustls", not(feature = "native-tls")))]
 use std::sync::Arc;
 #[cfg(any(feature = "native-tls", feature = "rustls"))]
 use std::sync::OnceLock;
 use std::time::Duration;
-#[cfg(feature = "webpki-roots")]
+#[cfg(all(feature = "webpki-roots", not(feature = "rustls-native-certs")))]
 use webpki_roots::TLS_SERVER_ROOTS;
 
 /// An HTTP client.
@@ -203,7 +203,7 @@ impl Client {
                         .map_err(|e| e.into_error())?;
                     return decode_response(BufReader::new(stream));
                 }
-                #[cfg(feature = "rustls")]
+                #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
                 {
                     static RUSTLS_CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
 
@@ -219,7 +219,7 @@ impl Client {
                             root_store
                         };
 
-                        #[cfg(feature = "webpki-roots")]
+                        #[cfg(all(feature = "webpki-roots", not(feature = "rustls-native-certs")))]
                         let root_store = RootCertStore { roots: TLS_SERVER_ROOTS.to_vec() };
 
                         #[cfg(not(any(
