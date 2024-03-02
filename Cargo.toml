@@ -1,6 +1,6 @@
 [package]
 name = "oxhttp"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 authors = ["Tpt <thomas@pellissier-tanon.fr>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -17,7 +17,7 @@ rust-version = "1.70"
 flate2 = { version = "1", optional = true }
 httparse = "1.8"
 native-tls = { version = "0.2.11", optional = true }
-rustls = { version = "0.23", optional = true, default-features = false, features = ["std"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12"] }
 rustls-native-certs = { version = "0.7", optional = true }
 rustls-pki-types = { version = "1.2", optional = true }
 webpki-roots = { version = "0.26", optional = true }
