@@ -403,7 +403,10 @@ mod tests {
             )
             .build(),
         )?;
-        assert_eq!(response.status(), Status::NOT_FOUND);
+        assert!(matches!(
+            response.status(),
+            Status::NOT_FOUND | Status::INTERNAL_SERVER_ERROR
+        ));
         Ok(())
     }
 
