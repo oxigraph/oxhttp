@@ -117,6 +117,7 @@ jobs:
         with:
           submodules: true
       - run: rustup update
+      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with: { tool: cargo-llvm-cov }
       - run: cargo llvm-cov --codecov --output-path codecov.json
