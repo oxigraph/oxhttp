@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.0] - 2024-03-23
+
+No change compared to the alpha releases.
+
 ## [0.2.0-alpha.4] - 2024-02-02
 
 ### Changed

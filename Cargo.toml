@@ -1,6 +1,6 @@
 [package]
 name = "oxhttp"
-version = "0.2.0-alpha.4"
+version = "0.2.0"
 authors = ["Tpt <thomas@pellissier-tanon.fr>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
