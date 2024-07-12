@@ -7,8 +7,14 @@ use crate::model::{
 use crate::utils::{invalid_data_error, invalid_input_error};
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
+#[cfg(all(
+    feature = "rustls",
+    not(feature = "native-tls"),
+    not(feature = "rustls-platform-verifier")
+))]
+use rustls::RootCertStore;
 #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
-use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
+use rustls::{ClientConfig, ClientConnection, StreamOwned};
 #[cfg(all(feature = "rustls-native-certs", not(feature = "native-tls")))]
 use rustls_native_certs::load_native_certs;
 #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
@@ -205,36 +211,49 @@ impl Client {
                 }
                 #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
                 {
+                    #[cfg(not(any(
+                        feature = "rustls-platform-verifier",
+                        feature = "rustls-native-certs",
+                        feature = "webpki-roots"
+                    )))]
+                    compile_error!(
+                        "rustls-platform-verifier or rustls-native-certs or webpki-roots must be installed to use OxHTTP with Rustls"
+                    );
+
                     static RUSTLS_CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
 
                     let rustls_config = RUSTLS_CONFIG.get_or_init(|| {
-                        #[cfg(feature = "rustls-native-certs")]
-                        let root_store = {
-                            let mut root_store = RootCertStore::empty();
-                            for cert in load_native_certs()
-                                .unwrap_or_else(|e| panic!("Error loading TLS certificates from the OS: {}", e))
-                            {
-                                root_store.add(cert).unwrap();
-                            }
-                            root_store
-                        };
+                        #[cfg(feature = "rustls-platform-verifier")]
+                        {
+                            Arc::new(rustls_platform_verifier::tls_config())
+                        }
+                        #[cfg(not(feature = "rustls-platform-verifier"))]
+                        {
+                            #[cfg(feature = "rustls-native-certs")]
+                            let root_store = {
+                                let mut root_store = RootCertStore::empty();
+                                for cert in load_native_certs().unwrap_or_else(|e| {
+                                    panic!("Error loading TLS certificates from the OS: {}", e)
+                                }) {
+                                    root_store.add(cert).unwrap();
+                                }
+                                root_store
+                            };
 
-                        #[cfg(all(feature = "webpki-roots", not(feature = "rustls-native-certs")))]
-                        let root_store = RootCertStore { roots: TLS_SERVER_ROOTS.to_vec() };
+                            #[cfg(all(
+                                feature = "webpki-roots",
+                                not(feature = "rustls-native-certs")
+                            ))]
+                            let root_store = RootCertStore {
+                                roots: TLS_SERVER_ROOTS.to_vec(),
+                            };
 
-                        #[cfg(not(any(
-                            feature = "rustls-native-certs",
-                            feature = "webpki-roots"
-                        )))]
-                        compile_error!(
-                            "rustls-native-certs or webpki-roots must be installed to use OxHTTP with Rustls"
-                        );
-
-                        Arc::new(
-                            ClientConfig::builder()
-                                .with_root_certificates(root_store)
-                                .with_no_client_auth(),
-                        )
+                            Arc::new(
+                                ClientConfig::builder()
+                                    .with_root_certificates(root_store)
+                                    .with_no_client_auth(),
+                            )
+                        }
                     });
                     let addresses = get_and_validate_socket_addresses(request.url(), 443)?;
                     let dns_name = ServerName::try_from(host)
