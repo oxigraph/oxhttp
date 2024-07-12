@@ -26,8 +26,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features native-tls -- -D warnings -D clippy::all
+      - run: cargo clippy --all-targets --features rustls-ring-platform-verifier -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features rustls-ring-native -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features rustls-ring-webpki -- -D warnings -D clippy::all
+      - run: cargo clippy --all-targets --features rustls-aws-lc-platform-verifier -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features rustls-aws-lc-native -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features rustls-aws-lc-webpki -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features flate2 -- -D warnings -D clippy::all
@@ -44,8 +46,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
       - run: cargo test --features native-tls
+      - run: cargo test --features rustls-ring-platform-verifier
       - run: cargo test --features rustls-ring-native
       - run: cargo test --features rustls-ring-webpki
+      - run: cargo test --features rustls-aws-lc-platform-verifier
+        if: ${{ matrix.os != 'windows-latest' }}
       - run: cargo test --features rustls-aws-lc-native
         if: ${{ matrix.os != 'windows-latest' }}
       - run: cargo test --features rustls-aws-lc-webpki
@@ -65,8 +70,10 @@ jobs:
       - run: cargo +nightly update -Z direct-minimal-versions
       - run: cargo test
       - run: cargo test --features native-tls
+      - run: cargo test --features rustls-ring-platform-verifier
       - run: cargo test --features rustls-ring-native
       - run: cargo test --features rustls-ring-webpki
+      - run: cargo test --features rustls-aws-lc-platform-verifier
       - run: cargo test --features rustls-aws-lc-native
       - run: cargo test --features rustls-aws-lc-webpki
       - run: cargo test --features flate2
