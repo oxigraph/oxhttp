@@ -7,8 +7,8 @@ OxHTTP
 
 OxHTTP is a simple and naive synchronous implementation of [HTTP 1.1](https://httpwg.org/http-core/) in Rust.
 It provides both a client and a server.
-It does not aim to be a fully-working-in-all-cases HTTP implementation but to be only a naive one to be use in simple
-usecases.
+It does not aim to be a fully-working-in-all-cases HTTP implementation
+but to be only a simple one to be use in simple usecases.
 
 ## Client
 

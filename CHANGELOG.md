@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1] - 2024-08-2à
+
+### Added
+
+- `rustls-aws-lc-platform-verifier` and `rustls-ring-platform-verifier` features to use the rustls-platform-verifier
+  crate to validate TLS certificates.
+
 ## [0.2.0] - 2024-03-23
 
 No change compared to the alpha releases.
