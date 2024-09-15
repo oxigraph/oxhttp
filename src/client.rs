@@ -232,9 +232,7 @@ impl Client {
                             #[cfg(feature = "rustls-native-certs")]
                             let root_store = {
                                 let mut root_store = RootCertStore::empty();
-                                for cert in load_native_certs().unwrap_or_else(|e| {
-                                    panic!("Error loading TLS certificates from the OS: {}", e)
-                                }) {
+                                for cert in load_native_certs().certs {
                                     root_store.add(cert).unwrap();
                                 }
                                 root_store
