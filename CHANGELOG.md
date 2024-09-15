@@ -1,6 +1,12 @@
 # Changelog
 
-## [0.2.1] - 2024-08-2à
+## [0.2.2] - 2024-09-15
+
+### Changed
+
+- Upgrades to `rustls-native-certs` 0.8.
+
+## [0.2.1] - 2024-08-20
 
 ### Added
 
