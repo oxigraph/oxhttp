@@ -1,6 +1,7 @@
 use std::borrow::{Borrow, Cow};
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
@@ -574,6 +575,13 @@ impl fmt::Display for InvalidHeader {
 }
 
 impl Error for InvalidHeader {}
+
+impl From<Infallible> for InvalidHeader {
+    #[inline]
+    fn from(e: Infallible) -> Self {
+        match e {}
+    }
+}
 
 #[cfg(test)]
 mod tests {
