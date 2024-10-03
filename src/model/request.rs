@@ -60,13 +60,13 @@ impl Request {
     }
 
     #[inline]
-    pub fn append_header(
+    pub fn append_header<E: Into<InvalidHeader>>(
         &mut self,
         name: impl IntoHeaderName,
-        value: impl TryInto<HeaderValue, Error = InvalidHeader>,
+        value: impl TryInto<HeaderValue, Error = E>,
     ) -> Result<(), InvalidHeader> {
         self.headers_mut()
-            .append(name.try_into()?, value.try_into()?);
+            .append(name.try_into()?, value.try_into().map_err(Into::into)?);
         Ok(())
     }
 
@@ -120,13 +120,13 @@ impl RequestBuilder {
     }
 
     #[inline]
-    pub fn with_header(
+    pub fn with_header<E: Into<InvalidHeader>>(
         mut self,
         name: impl IntoHeaderName,
-        value: impl TryInto<HeaderValue, Error = InvalidHeader>,
+        value: impl TryInto<HeaderValue, Error = E>,
     ) -> Result<Self, InvalidHeader> {
         self.headers_mut()
-            .append(name.try_into()?, value.try_into()?);
+            .append(name.try_into()?, value.try_into().map_err(Into::into)?);
         Ok(self)
     }
 
