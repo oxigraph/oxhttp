@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.3] - 2024-10-03
+
+### Changed
+
+- Allows setting `HeaderName` in `append_header` and `with_header`.
+
 ## [0.2.2] - 2024-09-15
 
 ### Changed
