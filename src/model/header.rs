@@ -492,7 +492,7 @@ impl<'a> DoubleEndedIterator for Iter<'a> {
     }
 }
 
-impl<'a> ExactSizeIterator for Iter<'a> {
+impl ExactSizeIterator for Iter<'_> {
     #[inline]
     fn len(&self) -> usize {
         self.0.len()
