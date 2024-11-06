@@ -15,10 +15,20 @@ use native_tls::TlsConnector;
 use rustls::RootCertStore;
 #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
 use rustls::{ClientConfig, ClientConnection, StreamOwned};
-#[cfg(all(feature = "rustls-native-certs", not(feature = "native-tls")))]
+#[cfg(all(
+    feature = "rustls-native-certs",
+    not(feature = "rustls-platform-verifier"),
+    not(feature = "native-tls")
+))]
 use rustls_native_certs::load_native_certs;
 #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
 use rustls_pki_types::ServerName;
+#[cfg(all(
+    feature = "rustls",
+    feature = "rustls-platform-verifier",
+    not(feature = "native-tls")
+))]
+use rustls_platform_verifier::ConfigVerifierExt;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{SocketAddr, TcpStream};
 #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
@@ -225,7 +235,7 @@ impl Client {
                     let rustls_config = RUSTLS_CONFIG.get_or_init(|| {
                         #[cfg(feature = "rustls-platform-verifier")]
                         {
-                            Arc::new(rustls_platform_verifier::tls_config())
+                            Arc::new(ClientConfig::with_platform_verifier())
                         }
                         #[cfg(not(feature = "rustls-platform-verifier"))]
                         {
