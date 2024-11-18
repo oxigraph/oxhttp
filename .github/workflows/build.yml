@@ -15,14 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup update && rustup component add rustfmt
+      - run: rustup component add rustfmt
       - run: cargo fmt -- --check
 
   clippy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup update && rustup default 1.72.0 && rustup component add clippy
+      - run: rustup default 1.82.0 && rustup component add clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features native-tls -- -D warnings -D clippy::all
@@ -65,7 +65,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - run: rustup update && rustup toolchain install nightly && rustup default 1.70.0
+      - run: rustup toolchain install nightly && rustup default 1.70.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo +nightly update -Z direct-minimal-versions
       - run: cargo test
@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup update && rustup override set 1.72.0
+      - run: rustup override set 1.82.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --all-features --no-deps
         env:
@@ -103,7 +103,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - run: rustup update
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with: { tool: cargo-semver-checks }
@@ -123,12 +122,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - run: rustup update
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with: { tool: cargo-llvm-cov }
       - run: cargo llvm-cov --codecov --output-path codecov.json
-      - uses: codecov/codecov-action@v3
+      - uses: codecov/codecov-action@v5
         with:
           files: codecov.json
           flags: rust
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
