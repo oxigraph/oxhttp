@@ -194,8 +194,8 @@ fn decode_body(headers: &Headers, reader: impl BufRead + 'static) -> Result<Body
                 reader,
                 buffer: Vec::with_capacity(DEFAULT_SIZE),
                 is_start: true,
-                chunk_position: 1,
-                chunk_size: 1,
+                chunk_position: 0,
+                chunk_size: 0,
                 trailers: None,
             })
         } else {
@@ -257,6 +257,8 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
 
             if self.is_start {
                 self.is_start = false;
+            } else if self.trailers.is_some() {
+                return Ok(0); // We already read the trailers, it means we have finished reading
             } else {
                 // chunk end
                 self.buffer.clear();
@@ -323,7 +325,6 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
                     );
                 }
                 self.trailers = Some(trailers);
-
                 return Ok(0);
             }
         }
@@ -720,5 +721,17 @@ mod tests {
     #[test]
     fn decode_response_content_length_and_transfer_encoding() {
         assert!(decode_response( b"HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ntransfer-encoding:chunked\r\ncontent-length: 222\r\n\r\n".as_slice()).is_err());
+    }
+
+    #[test]
+    fn decode_response_with_chunked_payload_read_after_end() -> Result<()> {
+        let response = decode_response(
+            b"HTTP/1.1 200 OK\r\ntransfer-encoding:chunked\r\n\r\n4\r\nWiki\r\n5\r\npedia\r\nE\r\n in\r\n\r\nchunks.\r\n0\r\n\r\n".as_slice()
+        )?;
+        assert_eq!(response.status(), Status::OK);
+        let mut body = response.into_body();
+        body.read_to_end(&mut Vec::new())?;
+        assert_eq!(body.read(&mut [0; 1])?, 0);
+        Ok(())
     }
 }
