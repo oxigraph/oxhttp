@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.5] - 2024-12-06
+
+### Changed
+
+- Makes chunked transfer encoding decoder properly return Ok(0) after end
+
 ## [0.2.4] - 2024-11-06
 
 ### Changed
