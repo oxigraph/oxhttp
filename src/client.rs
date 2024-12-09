@@ -293,6 +293,7 @@ impl Client {
         }?;
         stream.set_read_timeout(self.timeout)?;
         stream.set_write_timeout(self.timeout)?;
+        stream.set_nodelay(true)?;
         Ok(stream)
     }
 

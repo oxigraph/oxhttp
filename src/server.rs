@@ -120,6 +120,9 @@ impl Server {
                                             continue;
                                         }
                                     };
+                                    if let Err(error) = stream.set_nodelay(true) {
+                                        eprintln!("OxHTTP TCP error when attempting to set the TCP_NODELAY option: {error}");
+                                    }
                                     let thread_name = format!("{}: responding thread of OxHTTP", peer_addr);
                                     let thread_guard = thread_limit.as_ref().map(|s| s.lock());
                                     let on_request = Arc::clone(&on_request);
