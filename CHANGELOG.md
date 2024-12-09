@@ -1,10 +1,17 @@
 # Changelog
 
+## [0.2.6] - 2024-12-09
+
+### Changed
+
+- Bump MSRV to 1.74.
+- Set TCP_NODELAY in client and server `TcpStream`s.
+
 ## [0.2.5] - 2024-12-06
 
 ### Changed
 
-- Makes chunked transfer encoding decoder properly return Ok(0) after end
+- Makes chunked transfer encoding decoder properly return `Ok(0)` after end.
 
 ## [0.2.4] - 2024-11-06
 
