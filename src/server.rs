@@ -1,5 +1,5 @@
-use crate::io::encode_response;
 use crate::io::{decode_request_body, decode_request_headers};
+use crate::io::{encode_response, BUFFER_CAPACITY};
 use crate::model::{
     HeaderName, HeaderValue, InvalidHeader, Request, RequestBuilder, Response, Status,
 };
@@ -190,7 +190,7 @@ fn accept_request(
     stream.set_write_timeout(timeout)?;
     let mut connection_state = ConnectionState::KeepAlive;
     while connection_state == ConnectionState::KeepAlive {
-        let mut reader = BufReader::new(stream.try_clone()?);
+        let mut reader = BufReader::with_capacity(BUFFER_CAPACITY, stream.try_clone()?);
         let (mut response, new_connection_state) = match decode_request_headers(&mut reader, false)
         {
             Ok(request) => {
@@ -234,9 +234,12 @@ fn accept_request(
             }
         }
 
-        stream = encode_response(&mut response, BufWriter::new(stream))?
-            .into_inner()
-            .map_err(|e| e.into_error())?;
+        stream = encode_response(
+            &mut response,
+            BufWriter::with_capacity(BUFFER_CAPACITY, stream),
+        )?
+        .into_inner()
+        .map_err(|e| e.into_error())?;
     }
     Ok(())
 }
