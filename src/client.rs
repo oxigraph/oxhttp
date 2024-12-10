@@ -1,6 +1,6 @@
 #![allow(unreachable_code, clippy::needless_return)]
 
-use crate::io::{decode_response, encode_request};
+use crate::io::{decode_response, encode_request, BUFFER_CAPACITY};
 use crate::model::{
     HeaderName, HeaderValue, InvalidHeader, Method, Request, Response, Status, Url,
 };
@@ -195,10 +195,11 @@ impl Client {
             "http" => {
                 let addresses = get_and_validate_socket_addresses(request.url(), 80)?;
                 let stream = self.connect(&addresses)?;
-                let stream = encode_request(request, BufWriter::new(stream))?
-                    .into_inner()
-                    .map_err(|e| e.into_error())?;
-                decode_response(BufReader::new(stream))
+                let stream =
+                    encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?
+                        .into_inner()
+                        .map_err(|e| e.into_error())?;
+                decode_response(BufReader::with_capacity(BUFFER_CAPACITY, stream))
             }
             "https" => {
                 #[cfg(feature = "native-tls")]
@@ -214,10 +215,11 @@ impl Client {
                         })
                         .connect(host, stream)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
-                    let stream = encode_request(request, BufWriter::new(stream))?
-                        .into_inner()
-                        .map_err(|e| e.into_error())?;
-                    return decode_response(BufReader::new(stream));
+                    let stream =
+                        encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?
+                            .into_inner()
+                            .map_err(|e| e.into_error())?;
+                    return decode_response(BufReader::with_capacity(BUFFER_CAPACITY, stream));
                 }
                 #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
                 {
@@ -270,10 +272,11 @@ impl Client {
                     let connection = ClientConnection::new(Arc::clone(rustls_config), dns_name)
                         .map_err(|e| Error::new(ErrorKind::Other, e))?;
                     let stream = StreamOwned::new(connection, self.connect(&addresses)?);
-                    let stream = encode_request(request, BufWriter::new(stream))?
-                        .into_inner()
-                        .map_err(|e| e.into_error())?;
-                    return decode_response(BufReader::new(stream));
+                    let stream =
+                        encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?
+                            .into_inner()
+                            .map_err(|e| e.into_error())?;
+                    return decode_response(BufReader::with_capacity(BUFFER_CAPACITY, stream));
                 }
                 #[cfg(not(any(feature = "native-tls", feature = "rustls")))]
                 return Err(invalid_input_error("HTTPS is not supported by the client. You should enable the `native-tls` or `rustls` feature of the `oxhttp` crate"));
