@@ -1,6 +1,6 @@
 [package]
 name = "oxhttp"
-version = "0.2.6"
+version = "0.2.7"
 authors = ["Tpt <thomas@pellissier-tanon.fr>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -8,7 +8,7 @@ documentation = "https://docs.rs/oxhttp"
 keywords = ["HTTP"]
 repository = "https://github.com/oxigraph/oxhttp"
 description = """
-Very simple implementation of HTTP 1.1 (both client and server)
+Simple implementation of HTTP 1.1 (both client and server)
 """
 edition = "2021"
 rust-version = "1.74"

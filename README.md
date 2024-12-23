@@ -28,12 +28,12 @@ To enable it you need to enable one of the following features:
 * `rustls-ring-native` to use [Rustls](https://github.com/rustls/rustls) with
   the [Ring](https://github.com/briansmith/ring) cryptographic library and the host certificates.
 * `rustls-aws-lc-platform-verifier` to use [Rustls](https://github.com/rustls/rustls) with
-  the [AWS Libcrypto for Rust](https://github.com/aws/aws-lc-rs/ring) and the host verifier or platform certificates.
+  the [AWS Libcrypto for Rust](https://github.com/aws/aws-lc-rs) and the host verifier or platform certificates.
 * `rustls-aws-lc-webpki` to use [Rustls](https://github.com/rustls/rustls) with
-  the [AWS Libcrypto for Rust](https://github.com/aws/aws-lc-rs/ring) and
+  the [AWS Libcrypto for Rust](https://github.com/aws/aws-lc-rs) and
   the [Common CA Database](https://www.ccadb.org/).
 * `rustls-aws-lc-native` to use [Rustls](https://github.com/rustls/rustls) with
-  the [AWS Libcrypto for Rust](https://github.com/aws/aws-lc-rs/ring) and the host certificates.
+  the [AWS Libcrypto for Rust](https://github.com/aws/aws-lc-rs) and the host certificates.
 
 Example:
 

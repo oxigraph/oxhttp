@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.7] - 2024-12-23
+
+### Changed
+
+- Increases read and write buffer sizes to 16kB.
+- Bump `rustls-platform-verifier` to v0.5.
+
 ## [0.2.6] - 2024-12-09
 
 ### Changed
