@@ -45,7 +45,7 @@ use std::io::Read;
 let client = Client::new();
 let response = client.request(Request::builder(Method::GET, "http://example.com".parse().unwrap()).build()).unwrap();
 assert_eq!(response.status(), Status::OK);
-assert_eq!(response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"text/html; charset=UTF-8");
+assert_eq!(response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"text/html");
 
 let body = response.into_body().to_string().unwrap();
 ```

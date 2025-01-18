@@ -72,7 +72,7 @@ use webpki_roots::TLS_SERVER_ROOTS;
 /// let client = Client::new();
 /// let response = client.request(Request::builder(Method::GET, "http://example.com".parse()?).build())?;
 /// assert_eq!(response.status(), Status::OK);
-/// assert_eq!(response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"text/html; charset=UTF-8");
+/// assert_eq!(response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"text/html");
 /// let body = response.into_body().to_string()?;
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
@@ -352,7 +352,7 @@ mod tests {
         assert_eq!(response.status(), Status::OK);
         assert_eq!(
             response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
-            b"text/html; charset=UTF-8"
+            b"text/html"
         );
         let body = response.into_body().to_string()?;
         assert!(body.contains("<html"));
@@ -371,7 +371,7 @@ mod tests {
         assert_eq!(response.status(), Status::OK);
         assert_eq!(
             response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
-            b"text/html; charset=UTF-8"
+            b"text/html"
         );
         Ok(())
     }
@@ -385,7 +385,7 @@ mod tests {
         assert_eq!(response.status(), Status::OK);
         assert_eq!(
             response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
-            b"text/html; charset=UTF-8"
+            b"text/html"
         );
         Ok(())
     }
@@ -410,7 +410,7 @@ mod tests {
         assert_eq!(response.status(), Status::OK);
         assert_eq!(
             response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
-            b"text/html; charset=UTF-8"
+            b"text/html"
         );
         Ok(())
     }
