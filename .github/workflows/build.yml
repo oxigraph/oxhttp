@@ -66,6 +66,7 @@ jobs:
         with:
           submodules: true
       - run: rustup toolchain install nightly && rustup default 1.74.0
+      - run: mkdir .cargo && echo "resolver.incompatible-rust-versions = \"fallback\"" >> .cargo/config.toml
       - uses: Swatinem/rust-cache@v2
       - run: cargo +nightly update -Z direct-minimal-versions
       - run: cargo test
