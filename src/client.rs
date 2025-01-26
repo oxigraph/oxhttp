@@ -1,9 +1,11 @@
 #![allow(unreachable_code, clippy::needless_return)]
 
 use crate::io::{decode_response, encode_request, BUFFER_CAPACITY};
-use crate::model::{
-    HeaderName, HeaderValue, InvalidHeader, Method, Request, Response, Status, Url,
+use crate::model::header::{
+    InvalidHeaderValue, ACCEPT_ENCODING, CONNECTION, LOCATION, RANGE, USER_AGENT,
 };
+use crate::model::uri::Scheme;
+use crate::model::{Body, HeaderValue, Method, Request, Response, StatusCode, Uri};
 use crate::utils::{invalid_data_error, invalid_input_error};
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
@@ -30,12 +32,13 @@ use rustls_pki_types::ServerName;
 ))]
 use rustls_platform_verifier::ConfigVerifierExt;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
 use std::sync::Arc;
 #[cfg(any(feature = "native-tls", feature = "rustls"))]
 use std::sync::OnceLock;
 use std::time::Duration;
+use url::Url;
 #[cfg(all(feature = "webpki-roots", not(feature = "rustls-native-certs")))]
 use webpki_roots::TLS_SERVER_ROOTS;
 
@@ -65,14 +68,19 @@ use webpki_roots::TLS_SERVER_ROOTS;
 /// Missing: HSTS support, authentication and keep alive.
 ///
 /// ```
+/// use http::header::CONTENT_TYPE;
+/// use oxhttp::model::{Body, HeaderName, Method, Request, StatusCode};
 /// use oxhttp::Client;
-/// use oxhttp::model::{Request, Method, Status, HeaderName};
 /// use std::io::Read;
 ///
 /// let client = Client::new();
-/// let response = client.request(Request::builder(Method::GET, "http://example.com".parse()?).build())?;
-/// assert_eq!(response.status(), Status::OK);
-/// assert_eq!(response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"text/html");
+/// let response = client.request(
+///     Request::builder()
+///         .uri("http://example.com")
+///         .body(Body::empty())?,
+/// )?;
+/// assert_eq!(response.status(), StatusCode::OK);
+/// assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
 /// let body = response.into_body().to_string()?;
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
@@ -101,7 +109,7 @@ impl Client {
     pub fn with_user_agent(
         mut self,
         user_agent: impl Into<String>,
-    ) -> std::result::Result<Self, InvalidHeader> {
+    ) -> std::result::Result<Self, InvalidHeaderValue> {
         self.user_agent = Some(HeaderValue::try_from(user_agent.into())?);
         Ok(self)
     }
@@ -114,178 +122,171 @@ impl Client {
         self
     }
 
-    pub fn request(&self, mut request: Request) -> Result<Response> {
+    pub fn request(&self, request: Request<impl Into<Body>>) -> Result<Response<Body>> {
+        let mut request = request.map(Into::into);
         // Loops the number of allowed redirections + 1
         for _ in 0..(self.redirection_limit + 1) {
             let previous_method = request.method().clone();
             let response = self.single_request(&mut request)?;
-            let Some(location) = response.header(&HeaderName::LOCATION) else {
+            let Some(location) = response.headers().get(LOCATION) else {
                 return Ok(response);
             };
-            let new_method = match response.status() {
-                Status::MOVED_PERMANENTLY | Status::FOUND | Status::SEE_OTHER => {
+            let mut request_builder = Request::builder();
+            request_builder = request_builder.method(match response.status() {
+                StatusCode::MOVED_PERMANENTLY | StatusCode::FOUND | StatusCode::SEE_OTHER => {
                     if previous_method == Method::HEAD {
                         Method::HEAD
                     } else {
                         Method::GET
                     }
                 }
-                Status::TEMPORARY_REDIRECT | Status::PERMANENT_REDIRECT
+                StatusCode::TEMPORARY_REDIRECT | StatusCode::PERMANENT_REDIRECT
                     if previous_method.is_safe() =>
                 {
                     previous_method
                 }
                 _ => return Ok(response),
-            };
+            });
             let location = location.to_str().map_err(invalid_data_error)?;
-            let new_url = request.url().join(location).map_err(|e| {
-                invalid_data_error(format!(
-                    "Invalid URL in Location header raising error {e}: {location}"
+            request_builder = request_builder.uri(join_urls(request.uri(), location)?);
+            for (header_name, header_value) in request.headers() {
+                request_builder = request_builder.header(header_name, header_value);
+            }
+            request = request_builder.body(Body::empty()).map_err(|e| {
+                invalid_input_error(format!(
+                    "Failure when trying to build the redirected request: {e}"
                 ))
             })?;
-            let mut request_builder = Request::builder(new_method, new_url);
-            for (header_name, header_value) in request.headers() {
-                request_builder
-                    .headers_mut()
-                    .set(header_name.clone(), header_value.clone());
-            }
-            request = request_builder.build();
         }
         Err(Error::new(
             ErrorKind::Other,
             format!(
                 "The server requested too many redirects ({}). The latest redirection target is {}",
                 self.redirection_limit + 1,
-                request.url()
+                request.uri()
             ),
         ))
     }
 
-    fn single_request(&self, request: &mut Request) -> Result<Response> {
+    fn single_request(&self, request: &mut Request<Body>) -> Result<Response<Body>> {
         // Additional headers
         {
             let headers = request.headers_mut();
-            headers.set(
-                HeaderName::CONNECTION,
-                HeaderValue::new_unchecked("close".as_bytes()),
-            );
+            headers.insert(CONNECTION, HeaderValue::from_static("close"));
             if let Some(user_agent) = &self.user_agent {
-                if !headers.contains(&HeaderName::USER_AGENT) {
-                    headers.set(HeaderName::USER_AGENT, user_agent.clone())
-                }
+                headers
+                    .entry(USER_AGENT)
+                    .or_insert_with(|| user_agent.clone());
             }
-            if cfg!(feature = "flate2")
-                && !headers.contains(&HeaderName::ACCEPT_ENCODING)
-                && !headers.contains(&HeaderName::RANGE)
-            {
-                headers.set(
-                    HeaderName::ACCEPT_ENCODING,
-                    HeaderValue::new_unchecked("gzip,deflate".as_bytes()),
-                );
+            if cfg!(feature = "flate2") && !headers.contains_key(RANGE) {
+                headers
+                    .entry(ACCEPT_ENCODING)
+                    .or_insert_with(|| HeaderValue::from_static("gzip,deflate"));
             }
         }
 
         #[cfg(any(feature = "native-tls", feature = "rustls"))]
         let host = request
-            .url()
-            .host_str()
+            .uri()
+            .host()
             .ok_or_else(|| invalid_input_error("No host provided"))?;
 
-        match request.url().scheme() {
-            "http" => {
-                let addresses = get_and_validate_socket_addresses(request.url(), 80)?;
-                let stream = self.connect(&addresses)?;
-                let stream =
-                    encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?
-                        .into_inner()
-                        .map_err(|e| e.into_error())?;
-                decode_response(BufReader::with_capacity(BUFFER_CAPACITY, stream))
-            }
-            "https" => {
-                #[cfg(feature = "native-tls")]
-                {
-                    static TLS_CONNECTOR: OnceLock<TlsConnector> = OnceLock::new();
+        let scheme = request.uri().scheme().ok_or_else(|| {
+            invalid_input_error(format!("A URI scheme must be set, found {}", request.uri()))
+        })?;
 
-                    let addresses = get_and_validate_socket_addresses(request.url(), 443)?;
-                    let stream = self.connect(&addresses)?;
-                    let stream = TLS_CONNECTOR
-                        .get_or_init(|| match TlsConnector::new() {
-                            Ok(connector) => connector,
-                            Err(e) => panic!("Error while loading TLS configuration: {}", e), // TODO: use get_or_try_init
-                        })
-                        .connect(host, stream)
-                        .map_err(|e| Error::new(ErrorKind::Other, e))?;
-                    let stream =
-                        encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?
-                            .into_inner()
-                            .map_err(|e| e.into_error())?;
-                    return decode_response(BufReader::with_capacity(BUFFER_CAPACITY, stream));
-                }
-                #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
-                {
-                    #[cfg(not(any(
-                        feature = "rustls-platform-verifier",
-                        feature = "rustls-native-certs",
-                        feature = "webpki-roots"
-                    )))]
-                    compile_error!(
+        if *scheme == Scheme::HTTP {
+            let addresses = get_and_validate_socket_addresses(request.uri(), 80)?;
+            let stream = self.connect(&addresses)?;
+            let stream =
+                encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?
+                    .into_inner()
+                    .map_err(|e| e.into_error())?;
+            return decode_response(BufReader::with_capacity(BUFFER_CAPACITY, stream));
+        }
+
+        #[cfg(feature = "native-tls")]
+        if *scheme == Scheme::HTTPS {
+            static TLS_CONNECTOR: OnceLock<TlsConnector> = OnceLock::new();
+
+            let addresses = get_and_validate_socket_addresses(request.uri(), 443)?;
+            let stream = self.connect(&addresses)?;
+            let stream = TLS_CONNECTOR
+                .get_or_init(|| match TlsConnector::new() {
+                    Ok(connector) => connector,
+                    Err(e) => panic!("Error while loading TLS configuration: {}", e), // TODO: use get_or_try_init
+                })
+                .connect(host, stream)
+                .map_err(|e| Error::new(ErrorKind::Other, e))?;
+            let stream =
+                encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?
+                    .into_inner()
+                    .map_err(|e| e.into_error())?;
+            return decode_response(BufReader::with_capacity(BUFFER_CAPACITY, stream));
+        }
+        #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
+        if *scheme == Scheme::HTTPS {
+            #[cfg(not(any(
+                feature = "rustls-platform-verifier",
+                feature = "rustls-native-certs",
+                feature = "webpki-roots"
+            )))]
+            compile_error!(
                         "rustls-platform-verifier or rustls-native-certs or webpki-roots must be installed to use OxHTTP with Rustls"
                     );
 
-                    static RUSTLS_CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
+            static RUSTLS_CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
 
-                    let rustls_config = RUSTLS_CONFIG.get_or_init(|| {
-                        #[cfg(feature = "rustls-platform-verifier")]
-                        {
-                            Arc::new(ClientConfig::with_platform_verifier())
-                        }
-                        #[cfg(not(feature = "rustls-platform-verifier"))]
-                        {
-                            #[cfg(feature = "rustls-native-certs")]
-                            let root_store = {
-                                let mut root_store = RootCertStore::empty();
-                                for cert in load_native_certs().certs {
-                                    root_store.add(cert).unwrap();
-                                }
-                                root_store
-                            };
-
-                            #[cfg(all(
-                                feature = "webpki-roots",
-                                not(feature = "rustls-native-certs")
-                            ))]
-                            let root_store = RootCertStore {
-                                roots: TLS_SERVER_ROOTS.to_vec(),
-                            };
-
-                            Arc::new(
-                                ClientConfig::builder()
-                                    .with_root_certificates(root_store)
-                                    .with_no_client_auth(),
-                            )
-                        }
-                    });
-                    let addresses = get_and_validate_socket_addresses(request.url(), 443)?;
-                    let dns_name = ServerName::try_from(host)
-                        .map_err(invalid_input_error)?
-                        .to_owned();
-                    let connection = ClientConnection::new(Arc::clone(rustls_config), dns_name)
-                        .map_err(|e| Error::new(ErrorKind::Other, e))?;
-                    let stream = StreamOwned::new(connection, self.connect(&addresses)?);
-                    let stream =
-                        encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?
-                            .into_inner()
-                            .map_err(|e| e.into_error())?;
-                    return decode_response(BufReader::with_capacity(BUFFER_CAPACITY, stream));
+            let rustls_config = RUSTLS_CONFIG.get_or_init(|| {
+                #[cfg(feature = "rustls-platform-verifier")]
+                {
+                    Arc::new(ClientConfig::with_platform_verifier())
                 }
-                #[cfg(not(any(feature = "native-tls", feature = "rustls")))]
-                return Err(invalid_input_error("HTTPS is not supported by the client. You should enable the `native-tls` or `rustls` feature of the `oxhttp` crate"));
-            }
-            _ => Err(invalid_input_error(format!(
-                "Not supported URL scheme: {}",
-                request.url().scheme()
-            ))),
+                #[cfg(not(feature = "rustls-platform-verifier"))]
+                {
+                    #[cfg(feature = "rustls-native-certs")]
+                    let root_store = {
+                        let mut root_store = RootCertStore::empty();
+                        for cert in load_native_certs().certs {
+                            root_store.add(cert).unwrap();
+                        }
+                        root_store
+                    };
+
+                    #[cfg(all(feature = "webpki-roots", not(feature = "rustls-native-certs")))]
+                    let root_store = RootCertStore {
+                        roots: TLS_SERVER_ROOTS.to_vec(),
+                    };
+
+                    Arc::new(
+                        ClientConfig::builder()
+                            .with_root_certificates(root_store)
+                            .with_no_client_auth(),
+                    )
+                }
+            });
+            let addresses = get_and_validate_socket_addresses(request.uri(), 443)?;
+            let dns_name = ServerName::try_from(host)
+                .map_err(invalid_input_error)?
+                .to_owned();
+            let connection = ClientConnection::new(Arc::clone(rustls_config), dns_name)
+                .map_err(|e| Error::new(ErrorKind::Other, e))?;
+            let stream = StreamOwned::new(connection, self.connect(&addresses)?);
+            let stream =
+                encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?
+                    .into_inner()
+                    .map_err(|e| e.into_error())?;
+            return decode_response(BufReader::with_capacity(BUFFER_CAPACITY, stream));
         }
+
+        #[cfg(not(any(feature = "native-tls", feature = "rustls")))]
+        if *scheme == Scheme::HTTPS {
+            return Err(invalid_input_error("HTTPS is not supported by the client. You should enable the `native-tls` or `rustls` feature of the `oxhttp` crate"));
+        }
+
+        Err(invalid_input_error(format!(
+            "Not supported URL scheme: {scheme}"
+        )))
     }
 
     fn connect(&self, addresses: &[SocketAddr]) -> Result<TcpStream> {
@@ -325,8 +326,12 @@ const BAD_PORTS: [u16; 80] = [
     6697, 10080,
 ];
 
-fn get_and_validate_socket_addresses(url: &Url, default_port: u16) -> Result<Vec<SocketAddr>> {
-    let addresses = url.socket_addrs(|| Some(default_port))?;
+fn get_and_validate_socket_addresses(uri: &Uri, default_port: u16) -> Result<Vec<SocketAddr>> {
+    let host = uri
+        .host()
+        .ok_or_else(|| invalid_input_error(format!("No host in request URL {uri}")))?;
+    let port = uri.port_u16().unwrap_or(default_port);
+    let addresses = (host, port).to_socket_addrs()?.collect::<Vec<_>>();
     for address in &addresses {
         if BAD_PORTS.binary_search(&address.port()).is_ok() {
             return Err(invalid_input_error(format!(
@@ -338,22 +343,48 @@ fn get_and_validate_socket_addresses(url: &Url, default_port: u16) -> Result<Vec
     Ok(addresses)
 }
 
+fn join_urls(base: &Uri, relative: &str) -> Result<Uri> {
+    Uri::try_from(
+        Url::parse(&base.to_string())
+            .map_err(|e| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("Invalid base URL '{base}': {e}"),
+                )
+            })?
+            .join(relative)
+            .map_err(|e| {
+                Error::new(
+                    ErrorKind::InvalidData,
+                    format!("Invalid location header URL '{relative}': {e}"),
+                )
+            })?
+            .to_string(),
+    )
+    .map_err(|e| {
+        Error::new(
+            ErrorKind::InvalidData,
+            format!("Invalid location header URL '{relative}': {e}"),
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Method, Status};
+    use crate::model::header::CONTENT_TYPE;
 
     #[test]
     fn test_http_get_ok() -> Result<()> {
         let client = Client::new();
         let response = client.request(
-            Request::builder(Method::GET, "http://example.com".parse().unwrap()).build(),
+            Request::builder()
+                .uri("http://example.com")
+                .body(())
+                .unwrap(),
         )?;
-        assert_eq!(response.status(), Status::OK);
-        assert_eq!(
-            response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
-            b"text/html"
-        );
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
         let body = response.into_body().to_string()?;
         assert!(body.contains("<html"));
         Ok(())
@@ -366,13 +397,13 @@ mod tests {
             .unwrap()
             .with_global_timeout(Duration::from_secs(5));
         let response = client.request(
-            Request::builder(Method::GET, "http://example.com".parse().unwrap()).build(),
+            Request::builder()
+                .uri("http://example.com")
+                .body(())
+                .unwrap(),
         )?;
-        assert_eq!(response.status(), Status::OK);
-        assert_eq!(
-            response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
-            b"text/html"
-        );
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
         Ok(())
     }
 
@@ -380,13 +411,13 @@ mod tests {
     fn test_http_get_ok_explicit_port() -> Result<()> {
         let client = Client::new();
         let response = client.request(
-            Request::builder(Method::GET, "http://example.com:80".parse().unwrap()).build(),
+            Request::builder()
+                .uri("http://example.com:80")
+                .body(())
+                .unwrap(),
         )?;
-        assert_eq!(response.status(), Status::OK);
-        assert_eq!(
-            response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
-            b"text/html"
-        );
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
         Ok(())
     }
 
@@ -395,7 +426,10 @@ mod tests {
         let client = Client::new();
         assert!(client
             .request(
-                Request::builder(Method::GET, "http://example.com:22".parse().unwrap()).build(),
+                Request::builder()
+                    .uri("http://example.com:22")
+                    .body(())
+                    .unwrap(),
             )
             .is_err());
     }
@@ -405,13 +439,13 @@ mod tests {
     fn test_https_get_ok() -> Result<()> {
         let client = Client::new();
         let response = client.request(
-            Request::builder(Method::GET, "https://example.com".parse().unwrap()).build(),
+            Request::builder()
+                .uri("https://example.com")
+                .body(())
+                .unwrap(),
         )?;
-        assert_eq!(response.status(), Status::OK);
-        assert_eq!(
-            response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(),
-            b"text/html"
-        );
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
         Ok(())
     }
 
@@ -420,7 +454,12 @@ mod tests {
     fn test_https_get_err() {
         let client = Client::new();
         assert!(client
-            .request(Request::builder(Method::GET, "https://example.com".parse().unwrap()).build())
+            .request(
+                Request::builder()
+                    .uri("https://example.com")
+                    .body(())
+                    .unwrap()
+            )
             .is_err());
     }
 
@@ -428,15 +467,14 @@ mod tests {
     fn test_http_get_not_found() -> Result<()> {
         let client = Client::new();
         let response = client.request(
-            Request::builder(
-                Method::GET,
-                "http://example.com/not_existing".parse().unwrap(),
-            )
-            .build(),
+            Request::builder()
+                .uri("http://example.com/not_existing")
+                .body(())
+                .unwrap(),
         )?;
         assert!(matches!(
             response.status(),
-            Status::NOT_FOUND | Status::INTERNAL_SERVER_ERROR
+            StatusCode::NOT_FOUND | StatusCode::INTERNAL_SERVER_ERROR
         ));
         Ok(())
     }
@@ -446,11 +484,10 @@ mod tests {
         let client = Client::new();
         assert!(client
             .request(
-                Request::builder(
-                    Method::GET,
-                    "file://example.com/not_existing".parse().unwrap(),
-                )
-                .build(),
+                Request::builder()
+                    .uri("file://example.com/not_existing")
+                    .body(())
+                    .unwrap(),
             )
             .is_err());
     }
@@ -460,9 +497,12 @@ mod tests {
     fn test_redirection() -> Result<()> {
         let client = Client::new().with_redirection_limit(5);
         let response = client.request(
-            Request::builder(Method::GET, "http://wikipedia.org".parse().unwrap()).build(),
+            Request::builder()
+                .uri("http://wikipedia.org")
+                .body(())
+                .unwrap(),
         )?;
-        assert_eq!(response.status(), Status::OK);
+        assert_eq!(response.status(), StatusCode::OK);
         Ok(())
     }
 }

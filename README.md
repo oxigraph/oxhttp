@@ -39,13 +39,14 @@ Example:
 
 ```rust
 use oxhttp::Client;
-use oxhttp::model::{Request, Method, Status, HeaderName};
+use oxhttp::model::{Body, Request, Method, StatusCode, HeaderName};
+use oxhttp::model::header::CONTENT_TYPE;
 use std::io::Read;
 
 let client = Client::new();
-let response = client.request(Request::builder(Method::GET, "http://example.com".parse().unwrap()).build()).unwrap();
-assert_eq!(response.status(), Status::OK);
-assert_eq!(response.header(&HeaderName::CONTENT_TYPE).unwrap().as_ref(), b"text/html");
+let response = client.request(Request::builder().uri("http://example.com").body(Body::empty()).unwrap()).unwrap();
+assert_eq!(response.status(), StatusCode::OK);
+assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
 
 let body = response.into_body().to_string().unwrap();
 ```
@@ -60,15 +61,15 @@ Example:
 ```rust no_run
 use std::net::{Ipv4Addr, Ipv6Addr};
 use oxhttp::Server;
-use oxhttp::model::{Response, Status};
+use oxhttp::model::{Body, Response, StatusCode};
 use std::time::Duration;
 
 // Builds a new server that returns a 404 everywhere except for "/" where it returns the body 'home'
 let mut server = Server::new( | request| {
-if request.url().path() == "/" {
-Response::builder(Status::OK).with_body("home")
+if request.uri().path() == "/" {
+Response::builder().body(Body::from("home")).unwrap()
 } else {
-Response::builder(Status::NOT_FOUND).build()
+Response::builder().status(StatusCode::NOT_FOUND).body(Body::empty()).unwrap()
 }
 });
 // We bind the server to localhost on both IPv4 and v6
