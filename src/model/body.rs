@@ -1,6 +1,7 @@
-use crate::model::Headers;
+use crate::model::HeaderMap;
 #[cfg(feature = "flate2")]
 use flate2::read::{DeflateDecoder, GzDecoder};
+use std::borrow::Cow;
 use std::fmt;
 use std::io::{Cursor, Error, ErrorKind, Read, Result};
 
@@ -60,6 +61,12 @@ impl Body {
         ))))
     }
 
+    /// The empty body
+    #[inline]
+    pub fn empty() -> Self {
+        Self(BodyAlt::SimpleBorrowed(b""))
+    }
+
     /// The number of bytes in the body (if known).
     #[allow(clippy::len_without_is_empty)]
     #[inline]
@@ -77,7 +84,7 @@ impl Body {
     /// Returns the chunked transfer encoding trailers if they exists and are already received.
     /// You should fully consume the body before attempting to fetch them.
     #[inline]
-    pub fn trailers(&self) -> Option<&Headers> {
+    pub fn trailers(&self) -> Option<&HeaderMap> {
         match &self.0 {
             BodyAlt::SimpleOwned(_) | BodyAlt::SimpleBorrowed(_) | BodyAlt::Sized { .. } => None,
             BodyAlt::Chunked(c) => c.trailers(),
@@ -185,7 +192,7 @@ impl Read for Body {
 impl Default for Body {
     #[inline]
     fn default() -> Self {
-        b"".as_ref().into()
+        Self::empty()
     }
 }
 
@@ -217,6 +224,33 @@ impl From<&'static str> for Body {
     }
 }
 
+impl From<Cow<'static, [u8]>> for Body {
+    #[inline]
+    fn from(data: Cow<'static, [u8]>) -> Self {
+        match data {
+            Cow::Borrowed(data) => data.into(),
+            Cow::Owned(data) => data.into(),
+        }
+    }
+}
+
+impl From<Cow<'static, str>> for Body {
+    #[inline]
+    fn from(data: Cow<'static, str>) -> Self {
+        match data {
+            Cow::Borrowed(data) => data.into(),
+            Cow::Owned(data) => data.into(),
+        }
+    }
+}
+
+impl From<()> for Body {
+    #[inline]
+    fn from(_: ()) -> Self {
+        Self::empty()
+    }
+}
+
 impl fmt::Debug for Body {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -230,7 +264,7 @@ impl fmt::Debug for Body {
 /// It allows to provide [trailers](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#trailer.fields) to serialize.
 pub trait ChunkedTransferPayload: Read {
     /// The [trailers](https://httpwg.org/http-core/draft-ietf-httpbis-semantics-latest.html#trailer.fields) to serialize.
-    fn trailers(&self) -> Option<&Headers>;
+    fn trailers(&self) -> Option<&HeaderMap>;
 }
 
 struct SimpleChunkedTransferEncoding<R: Read>(R);
@@ -244,7 +278,7 @@ impl<R: Read> Read for SimpleChunkedTransferEncoding<R> {
 
 impl<R: Read> ChunkedTransferPayload for SimpleChunkedTransferEncoding<R> {
     #[inline]
-    fn trailers(&self) -> Option<&Headers> {
+    fn trailers(&self) -> Option<&HeaderMap> {
         None
     }
 }

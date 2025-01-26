@@ -1,13 +1,12 @@
-use crate::io::{decode_request_body, decode_request_headers};
-use crate::io::{encode_response, BUFFER_CAPACITY};
-use crate::model::{
-    HeaderName, HeaderValue, InvalidHeader, Request, RequestBuilder, Response, Status,
-};
+use crate::io::{decode_request_body, decode_request_headers, encode_response, BUFFER_CAPACITY};
+use crate::model::header::{InvalidHeaderValue, CONNECTION, CONTENT_TYPE, EXPECT, SERVER};
+use crate::model::request::Builder as RequestBuilder;
+use crate::model::{Body, HeaderValue, Request, Response, StatusCode, Version};
 use std::fmt;
 use std::io::{copy, sink, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{Builder, JoinHandle};
+use std::thread::{Builder as ThreadBuilder, JoinHandle};
 use std::time::Duration;
 
 /// An HTTP server.
@@ -18,15 +17,15 @@ use std::time::Duration;
 /// ```no_run
 /// use std::net::{Ipv4Addr, Ipv6Addr};
 /// use oxhttp::Server;
-/// use oxhttp::model::{Response, Status};
+/// use oxhttp::model::{Body, Response, StatusCode};
 /// use std::time::Duration;
 ///
 /// // Builds a new server that returns a 404 everywhere except for "/" where it returns the body 'home'
 /// let mut server = Server::new(|request| {
-///     if request.url().path() == "/" {
-///         Response::builder(Status::OK).with_body("home")
+///     if request.uri().path() == "/" {
+///         Response::builder().body(Body::from("home")).unwrap()
 ///     } else {
-///         Response::builder(Status::NOT_FOUND).build()
+///         Response::builder().status(StatusCode::NOT_FOUND).body(Body::empty()).unwrap()
 ///     }
 /// });
 /// // We bind the server to localhost on both IPv4 and v6
@@ -41,7 +40,8 @@ use std::time::Duration;
 /// ```
 #[allow(missing_copy_implementations)]
 pub struct Server {
-    on_request: Arc<dyn Fn(&mut Request) -> Response + Send + Sync + 'static>,
+    #[allow(clippy::type_complexity)]
+    on_request: Arc<dyn Fn(&mut Request<Body>) -> Response<Body> + Send + Sync + 'static>,
     socket_addrs: Vec<SocketAddr>,
     timeout: Option<Duration>,
     server: Option<HeaderValue>,
@@ -51,7 +51,9 @@ pub struct Server {
 impl Server {
     /// Builds the server using the given `on_request` method that builds a `Response` from a given `Request`.
     #[inline]
-    pub fn new(on_request: impl Fn(&mut Request) -> Response + Send + Sync + 'static) -> Self {
+    pub fn new(
+        on_request: impl Fn(&mut Request<Body>) -> Response<Body> + Send + Sync + 'static,
+    ) -> Self {
         Self {
             on_request: Arc::new(on_request),
             socket_addrs: Vec::new(),
@@ -75,7 +77,7 @@ impl Server {
     pub fn with_server_name(
         mut self,
         server: impl Into<String>,
-    ) -> std::result::Result<Self, InvalidHeader> {
+    ) -> std::result::Result<Self, InvalidHeaderValue> {
         self.server = Some(HeaderValue::try_from(server.into())?);
         Ok(self)
     }
@@ -109,7 +111,7 @@ impl Server {
                     let thread_limit = thread_limit.clone();
                     let on_request = Arc::clone(&self.on_request);
                     let server = self.server.clone();
-                    Builder::new().name(thread_name).spawn(move || {
+                    ThreadBuilder::new().name(thread_name).spawn(move || {
                         for stream in listener.incoming() {
                             match stream {
                                 Ok(stream) => {
@@ -127,7 +129,7 @@ impl Server {
                                     let thread_guard = thread_limit.as_ref().map(|s| s.lock());
                                     let on_request = Arc::clone(&on_request);
                                     let server = server.clone();
-                                    if let Err(error) = Builder::new().name(thread_name).spawn(
+                                    if let Err(error) = ThreadBuilder::new().name(thread_name).spawn(
                                         move || {
                                             if let Err(error) =
                                                 accept_request(stream, &*on_request, timeout, &server)
@@ -182,7 +184,7 @@ impl ListeningServer {
 
 fn accept_request(
     mut stream: TcpStream,
-    on_request: &dyn Fn(&mut Request) -> Response,
+    on_request: &dyn Fn(&mut Request<Body>) -> Response<Body>,
     timeout: Option<Duration>,
     server: &Option<HeaderValue>,
 ) -> Result<()> {
@@ -195,14 +197,14 @@ fn accept_request(
         {
             Ok(request) => {
                 // Handles Expect header
-                if let Some(expect) = request.header(&HeaderName::EXPECT).cloned() {
-                    if expect.eq_ignore_ascii_case(b"100-continue") {
+                if let Some(expect) = request.headers_ref().unwrap().get(EXPECT).cloned() {
+                    if expect.as_bytes().eq_ignore_ascii_case(b"100-continue") {
                         stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
                         read_body_and_build_response(request, reader, on_request)
                     } else {
                         (
                             build_text_response(
-                                Status::EXPECTATION_FAILED,
+                                StatusCode::EXPECTATION_FAILED,
                                 format!(
                                     "Expect header value '{}' is not supported.",
                                     String::from_utf8_lossy(expect.as_ref())
@@ -227,11 +229,10 @@ fn accept_request(
 
         // Additional headers
         if let Some(server) = server {
-            if !response.headers().contains(&HeaderName::SERVER) {
-                response
-                    .headers_mut()
-                    .set(HeaderName::SERVER, server.clone())
-            }
+            response
+                .headers_mut()
+                .entry(SERVER)
+                .or_insert_with(|| server.clone());
         }
 
         stream = encode_response(
@@ -253,22 +254,30 @@ enum ConnectionState {
 fn read_body_and_build_response(
     request: RequestBuilder,
     reader: BufReader<TcpStream>,
-    on_request: &dyn Fn(&mut Request) -> Response,
-) -> (Response, ConnectionState) {
+    on_request: &dyn Fn(&mut Request<Body>) -> Response<Body>,
+) -> (Response<Body>, ConnectionState) {
     match decode_request_body(request, reader) {
         Ok(mut request) => {
             let response = on_request(&mut request);
             // We make sure to finish reading the body
             if let Err(error) = copy(request.body_mut(), &mut sink()) {
-                (build_error(error), ConnectionState::Close) //TODO: ignore?
+                (build_error(error), ConnectionState::Close) // TODO: ignore?
             } else {
                 let connection_state = request
-                    .header(&HeaderName::CONNECTION)
+                    .headers()
+                    .get(CONNECTION)
                     .and_then(|v| {
-                        v.eq_ignore_ascii_case(b"close")
+                        v.as_bytes()
+                            .eq_ignore_ascii_case(b"close")
                             .then_some(ConnectionState::Close)
                     })
-                    .unwrap_or(ConnectionState::KeepAlive);
+                    .unwrap_or_else(|| {
+                        if request.version() <= Version::HTTP_10 {
+                            ConnectionState::Close
+                        } else {
+                            ConnectionState::KeepAlive
+                        }
+                    });
                 (response, connection_state)
             }
         }
@@ -276,22 +285,23 @@ fn read_body_and_build_response(
     }
 }
 
-fn build_error(error: Error) -> Response {
+fn build_error(error: Error) -> Response<Body> {
     build_text_response(
         match error.kind() {
-            ErrorKind::TimedOut => Status::REQUEST_TIMEOUT,
-            ErrorKind::InvalidData => Status::BAD_REQUEST,
-            _ => Status::INTERNAL_SERVER_ERROR,
+            ErrorKind::TimedOut => StatusCode::REQUEST_TIMEOUT,
+            ErrorKind::InvalidData => StatusCode::BAD_REQUEST,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
         },
         error.to_string(),
     )
 }
 
-fn build_text_response(status: Status, text: String) -> Response {
-    Response::builder(status)
-        .with_header(HeaderName::CONTENT_TYPE, "text/plain; charset=utf-8")
+fn build_text_response(status: StatusCode, text: String) -> Response<Body> {
+    Response::builder()
+        .status(status)
+        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+        .body(Body::from(text))
         .unwrap()
-        .with_body(text)
 }
 
 /// Dumb semaphore allowing to overflow capacity
@@ -344,7 +354,6 @@ impl Drop for SemaphoreGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Status;
     use std::io::Read;
     use std::net::{Ipv4Addr, Ipv6Addr};
     use std::thread::sleep;
@@ -385,10 +394,13 @@ mod tests {
         responses: impl IntoIterator<Item = &'static str>,
     ) -> Result<()> {
         Server::new(|request| {
-            if request.url().path() == "/" {
-                Response::builder(Status::OK).with_body("home")
+            if request.uri().path() == "/" {
+                Response::builder().body(Body::from("home")).unwrap()
             } else {
-                Response::builder(Status::NOT_FOUND).build()
+                Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .body(Body::empty())
+                    .unwrap()
             }
         })
         .bind((Ipv4Addr::LOCALHOST, server_port))
@@ -413,7 +425,7 @@ mod tests {
         let server_port = 9996;
         let request = b"GET / HTTP/1.1\nhost: localhost:9999\n\n";
         let response = b"HTTP/1.1 200 OK\r\nserver: OxHTTP/1.0\r\ncontent-length: 4\r\n\r\nhome";
-        Server::new(|_| Response::builder(Status::OK).with_body("home"))
+        Server::new(|_| Response::builder().body(Body::from("home")).unwrap())
             .bind((Ipv4Addr::LOCALHOST, server_port))
             .bind((Ipv6Addr::LOCALHOST, server_port))
             .with_server_name("OxHTTP/1.0")
