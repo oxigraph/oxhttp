@@ -10,36 +10,65 @@ use crate::utils::{invalid_data_error, invalid_input_error};
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
 #[cfg(all(
-    feature = "rustls",
+    any(feature = "rustls-aws-lc-webpki", feature = "rustls-ring-webpki"),
     not(feature = "native-tls"),
-    not(feature = "rustls-platform-verifier")
+    not(feature = "rustls-aws-lc-native"),
+    not(feature = "rustls-ring-native"),
 ))]
 use rustls::RootCertStore;
-#[cfg(all(feature = "rustls", not(feature = "native-tls")))]
-use rustls::{ClientConfig, ClientConnection, StreamOwned};
 #[cfg(all(
-    feature = "rustls-native-certs",
-    not(feature = "rustls-platform-verifier"),
+    any(
+        feature = "rustls-aws-lc-webpki",
+        feature = "rustls-ring-webpki",
+        feature = "rustls-aws-lc-native",
+        feature = "rustls-ring-native"
+    ),
     not(feature = "native-tls")
 ))]
-use rustls_native_certs::load_native_certs;
-#[cfg(all(feature = "rustls", not(feature = "native-tls")))]
+use rustls::{ClientConfig, ClientConnection, StreamOwned};
+#[cfg(all(
+    any(
+        feature = "rustls-aws-lc-webpki",
+        feature = "rustls-ring-webpki",
+        feature = "rustls-aws-lc-native",
+        feature = "rustls-ring-native"
+    ),
+    not(feature = "native-tls")
+))]
 use rustls_pki_types::ServerName;
 #[cfg(all(
-    feature = "rustls",
-    feature = "rustls-platform-verifier",
+    any(feature = "rustls-aws-lc-native", feature = "rustls-ring-native"),
     not(feature = "native-tls")
 ))]
 use rustls_platform_verifier::ConfigVerifierExt;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-#[cfg(all(feature = "rustls", not(feature = "native-tls")))]
+#[cfg(all(
+    any(
+        feature = "rustls-aws-lc-webpki",
+        feature = "rustls-ring-webpki",
+        feature = "rustls-aws-lc-native",
+        feature = "rustls-ring-native"
+    ),
+    not(feature = "native-tls")
+))]
 use std::sync::Arc;
-#[cfg(any(feature = "native-tls", feature = "rustls"))]
+#[cfg(any(
+    feature = "rustls-aws-lc-webpki",
+    feature = "rustls-ring-webpki",
+    feature = "rustls-aws-lc-native",
+    feature = "rustls-ring-native",
+    feature = "native-tls"
+))]
 use std::sync::OnceLock;
 use std::time::Duration;
 use url::Url;
-#[cfg(all(feature = "webpki-roots", not(feature = "rustls-native-certs")))]
+#[cfg(all(
+    any(feature = "rustls-aws-lc-webpki", feature = "rustls-ring-webpki"),
+    not(feature = "native-tls"),
+    not(feature = "rustls-aws-lc-native"),
+    not(feature = "rustls-ring-native"),
+))]
 use webpki_roots::TLS_SERVER_ROOTS;
 
 /// An HTTP client.
@@ -185,7 +214,13 @@ impl Client {
             }
         }
 
-        #[cfg(any(feature = "native-tls", feature = "rustls"))]
+        #[cfg(any(
+            feature = "rustls-aws-lc-webpki",
+            feature = "rustls-ring-webpki",
+            feature = "rustls-aws-lc-native",
+            feature = "rustls-ring-native",
+            feature = "native-tls"
+        ))]
         let host = request
             .uri()
             .host()
@@ -224,43 +259,34 @@ impl Client {
                     .map_err(|e| e.into_error())?;
             return decode_response(BufReader::with_capacity(BUFFER_CAPACITY, stream));
         }
-        #[cfg(all(feature = "rustls", not(feature = "native-tls")))]
+        #[cfg(all(
+            any(
+                feature = "rustls-aws-lc-webpki",
+                feature = "rustls-ring-webpki",
+                feature = "rustls-aws-lc-native",
+                feature = "rustls-ring-native"
+            ),
+            not(feature = "native-tls")
+        ))]
         if *scheme == Scheme::HTTPS {
-            #[cfg(not(any(
-                feature = "rustls-platform-verifier",
-                feature = "rustls-native-certs",
-                feature = "webpki-roots"
-            )))]
-            compile_error!(
-                        "rustls-platform-verifier or rustls-native-certs or webpki-roots must be installed to use OxHTTP with Rustls"
-                    );
-
             static RUSTLS_CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
 
             let rustls_config = RUSTLS_CONFIG.get_or_init(|| {
-                #[cfg(feature = "rustls-platform-verifier")]
+                #[cfg(any(feature = "rustls-aws-lc-native", feature = "rustls-ring-native"))]
                 {
                     Arc::new(ClientConfig::with_platform_verifier())
                 }
-                #[cfg(not(feature = "rustls-platform-verifier"))]
+                #[cfg(all(
+                    any(feature = "rustls-aws-lc-webpki", feature = "rustls-ring-webpki"),
+                    not(feature = "rustls-aws-lc-native"),
+                    not(feature = "rustls-ring-native")
+                ))]
                 {
-                    #[cfg(feature = "rustls-native-certs")]
-                    let root_store = {
-                        let mut root_store = RootCertStore::empty();
-                        for cert in load_native_certs().certs {
-                            root_store.add(cert).unwrap();
-                        }
-                        root_store
-                    };
-
-                    #[cfg(all(feature = "webpki-roots", not(feature = "rustls-native-certs")))]
-                    let root_store = RootCertStore {
-                        roots: TLS_SERVER_ROOTS.to_vec(),
-                    };
-
                     Arc::new(
                         ClientConfig::builder()
-                            .with_root_certificates(root_store)
+                            .with_root_certificates(RootCertStore {
+                                roots: TLS_SERVER_ROOTS.to_vec(),
+                            })
                             .with_no_client_auth(),
                     )
                 }
@@ -279,7 +305,13 @@ impl Client {
             return decode_response(BufReader::with_capacity(BUFFER_CAPACITY, stream));
         }
 
-        #[cfg(not(any(feature = "native-tls", feature = "rustls")))]
+        #[cfg(not(any(
+            feature = "rustls-aws-lc-webpki",
+            feature = "rustls-ring-webpki",
+            feature = "rustls-aws-lc-native",
+            feature = "rustls-ring-native",
+            feature = "native-tls"
+        )))]
         if *scheme == Scheme::HTTPS {
             return Err(invalid_input_error("HTTPS is not supported by the client. You should enable the `native-tls` or `rustls` feature of the `oxhttp` crate"));
         }
@@ -434,7 +466,13 @@ mod tests {
             .is_err());
     }
 
-    #[cfg(any(feature = "native-tls", feature = "rustls"))]
+    #[cfg(any(
+        feature = "rustls-aws-lc-webpki",
+        feature = "rustls-ring-webpki",
+        feature = "rustls-aws-lc-native",
+        feature = "rustls-ring-native",
+        feature = "native-tls"
+    ))]
     #[test]
     fn test_https_get_ok() -> Result<()> {
         let client = Client::new();
@@ -449,7 +487,13 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(not(any(feature = "native-tls", feature = "rustls")))]
+    #[cfg(not(any(
+        feature = "rustls-aws-lc-webpki",
+        feature = "rustls-ring-webpki",
+        feature = "rustls-aws-lc-native",
+        feature = "rustls-ring-native",
+        feature = "native-tls"
+    )))]
     #[test]
     fn test_https_get_err() {
         let client = Client::new();
@@ -492,7 +536,13 @@ mod tests {
             .is_err());
     }
 
-    #[cfg(any(feature = "native-tls", feature = "rustls"))]
+    #[cfg(any(
+        feature = "rustls-aws-lc-webpki",
+        feature = "rustls-ring-webpki",
+        feature = "rustls-aws-lc-native",
+        feature = "rustls-ring-native",
+        feature = "native-tls"
+    ))]
     #[test]
     fn test_redirection() -> Result<()> {
         let client = Client::new().with_redirection_limit(5);
