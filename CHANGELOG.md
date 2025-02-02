@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0] - 2025-02-02
+
+### Changed
+
+- Uses the `http` crate structs to represent the HTTP model (`Request`, `Response`, `StatusCode`...) instead of the ones
+  defined by `oxhttp`. Only the `Body` struct is implemented by `oxhttp`.
+- The `rustls-*-native` features now rely on the `rustls-platform-verifier` crate to support certificate revocation.
+  The now redundant `rustls-*-platform-verifier` features have been removed.
+
 ## [0.2.7] - 2024-12-23
 
 ### Changed
