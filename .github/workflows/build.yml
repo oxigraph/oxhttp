@@ -120,7 +120,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with: { tool: cargo-llvm-cov }
-      - run: cargo llvm-cov --codecov --output-path codecov.json
+      - run: |
+          source <(cargo llvm-cov show-env --export-prefix)
+          export CARGO_TARGET_DIR=$CARGO_LLVM_COV_TARGET_DIR
+          cargo llvm-cov clean --workspace
+          cargo test --features native-tls
+          cargo test --features rustls-ring-native
+          cargo test --features rustls-ring-webpki
+          cargo test --features flate2
+          cargo llvm-cov report --codecov --output-path codecov.json
       - uses: codecov/codecov-action@v5
         with:
           files: codecov.json
