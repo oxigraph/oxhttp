@@ -198,7 +198,11 @@ fn accept_request(
             Ok(request) => {
                 // Handles Expect header
                 if let Some(expect) = request.headers_ref().unwrap().get(EXPECT).cloned() {
-                    if expect.as_bytes().eq_ignore_ascii_case(b"100-continue") {
+                    if request
+                        .version_ref()
+                        .map_or(true, |v| *v >= Version::HTTP_11)
+                        && expect.as_bytes().eq_ignore_ascii_case(b"100-continue")
+                    {
                         stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
                         read_body_and_build_response(request, reader, on_request)
                     } else {

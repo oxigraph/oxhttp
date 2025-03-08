@@ -3,7 +3,7 @@ use crate::model::header::{
     CONNECTION, CONTENT_LENGTH, DATE, EXPECT, HOST, ORIGIN, TE, TRAILER, TRANSFER_ENCODING,
     UPGRADE, VIA,
 };
-use crate::model::{Body, HeaderMap, HeaderName, Method, Request, Response, StatusCode};
+use crate::model::{Body, HeaderMap, HeaderName, Method, Request, Response, StatusCode, Version};
 use crate::utils::invalid_input_error;
 use std::io::{copy, Read, Result, Write};
 
@@ -21,27 +21,27 @@ pub fn encode_request<W: Write>(request: &mut Request<Body>, mut writer: W) -> R
         .uri()
         .host()
         .ok_or_else(|| invalid_input_error("No host provided"))?;
+    let version_str = serialize_version(request.version())?;
 
     if let Some(query) = request.uri().query() {
         write!(
             &mut writer,
-            "{} {}?{} HTTP/1.1\r\n",
-            request.method().as_str(),
-            request.uri().path(),
-            query
+            "{} {}?{query} {version_str}\r\n",
+            request.method(),
+            request.uri().path()
         )?;
     } else {
         write!(
             &mut writer,
-            "{} {} HTTP/1.1\r\n",
-            request.method().as_str(),
+            "{} {} {version_str}\r\n",
+            request.method(),
             request.uri().path(),
         )?;
     }
 
     // host
     if let Some(port) = request.uri().port() {
-        write!(writer, "host: {host}:{}\r\n", port.as_str())?;
+        write!(writer, "host: {host}:{port}\r\n")?;
     } else {
         write!(writer, "host: {host}\r\n")?;
     }
@@ -58,12 +58,8 @@ pub fn encode_request<W: Write>(request: &mut Request<Body>, mut writer: W) -> R
 
 pub fn encode_response<W: Write>(response: &mut Response<Body>, mut writer: W) -> Result<W> {
     let status = response.status();
-    write!(
-        &mut writer,
-        "HTTP/1.1 {} {}\r\n",
-        status.as_u16(),
-        status.canonical_reason().unwrap_or_default()
-    )?;
+    let version_str = serialize_version(response.version())?;
+    write!(&mut writer, "{version_str} {status}\r\n")?;
     encode_headers(response.headers(), &mut writer)?;
     let must_include_body = does_response_must_include_body(response.status());
     encode_body(response.body_mut(), &mut writer, must_include_body)?;
@@ -148,6 +144,16 @@ fn does_response_must_include_body(status: StatusCode) -> bool {
     !(status.is_informational()
         || status == StatusCode::NO_CONTENT
         || status == StatusCode::NOT_MODIFIED)
+}
+
+fn serialize_version(version: Version) -> Result<&'static str> {
+    match version {
+        Version::HTTP_10 => Ok("HTTP/1.0"),
+        Version::HTTP_11 => Ok("HTTP/1.1"),
+        _ => Err(invalid_input_error(
+            "HTTP version {version:?} is not supported",
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -279,9 +285,30 @@ mod tests {
         let buffer = encode_response(&mut response, Vec::new())?;
         assert_eq!(
             str::from_utf8(&buffer).unwrap(),
-            "HTTP/1.1 499 \r\ncontent-length: 0\r\n\r\n"
+            "HTTP/1.1 499 <unknown status code>\r\ncontent-length: 0\r\n\r\n"
         );
         Ok(())
+    }
+
+    #[test]
+    fn http_2_not_serializable() {
+        assert!(encode_request(
+            &mut Request::builder()
+                .uri("http://foo:bar@example.com/")
+                .version(Version::HTTP_2)
+                .body(Body::empty())
+                .unwrap(),
+            &mut Vec::new()
+        )
+        .is_err());
+        assert!(encode_response(
+            &mut Response::builder()
+                .version(Version::HTTP_2)
+                .body(Body::empty())
+                .unwrap(),
+            &mut Vec::new()
+        )
+        .is_err());
     }
 
     struct SimpleTrailers {

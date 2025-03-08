@@ -7,6 +7,7 @@ use crate::model::header::{
 use crate::model::uri::Scheme;
 use crate::model::{Body, HeaderValue, Method, Request, Response, StatusCode, Uri};
 use crate::utils::{invalid_data_error, invalid_input_error};
+use http::Version;
 #[cfg(feature = "native-tls")]
 use native_tls::TlsConnector;
 #[cfg(all(
@@ -200,8 +201,11 @@ impl Client {
     fn single_request(&self, request: &mut Request<Body>) -> Result<Response<Body>> {
         // Additional headers
         {
+            let request_version = request.version();
             let headers = request.headers_mut();
-            headers.insert(CONNECTION, HeaderValue::from_static("close"));
+            if request_version >= Version::HTTP_11 {
+                headers.insert(CONNECTION, HeaderValue::from_static("close"));
+            }
             if let Some(user_agent) = &self.user_agent {
                 headers
                     .entry(USER_AGENT)
