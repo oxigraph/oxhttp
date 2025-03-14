@@ -62,9 +62,10 @@ jobs:
         with:
           submodules: true
       - run: rustup toolchain install nightly && rustup default 1.74.0
-      - run: mkdir .cargo && echo "resolver.incompatible-rust-versions = \"fallback\"" >> .cargo/config.toml
       - uses: Swatinem/rust-cache@v2
       - run: cargo +nightly update -Z direct-minimal-versions
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
       - run: cargo test
       - run: cargo test --features native-tls
       - run: cargo test --features rustls-ring-native
