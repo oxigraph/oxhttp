@@ -188,14 +188,11 @@ impl Client {
                 ))
             })?;
         }
-        Err(Error::new(
-            ErrorKind::Other,
-            format!(
-                "The server requested too many redirects ({}). The latest redirection target is {}",
-                self.redirection_limit + 1,
-                request.uri()
-            ),
-        ))
+        Err(Error::other(format!(
+            "The server requested too many redirects ({}). The latest redirection target is {}",
+            self.redirection_limit + 1,
+            request.uri()
+        )))
     }
 
     fn single_request(&self, request: &mut Request<Body>) -> Result<Response<Body>> {
@@ -275,32 +272,34 @@ impl Client {
         if *scheme == Scheme::HTTPS {
             static RUSTLS_CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
 
+            // TODO: use get_or_try_init
+            #[cfg(any(feature = "rustls-aws-lc-native", feature = "rustls-ring-native"))]
             let rustls_config = RUSTLS_CONFIG.get_or_init(|| {
-                #[cfg(any(feature = "rustls-aws-lc-native", feature = "rustls-ring-native"))]
-                {
-                    Arc::new(ClientConfig::with_platform_verifier())
-                }
-                #[cfg(all(
-                    any(feature = "rustls-aws-lc-webpki", feature = "rustls-ring-webpki"),
-                    not(feature = "rustls-aws-lc-native"),
-                    not(feature = "rustls-ring-native")
-                ))]
-                {
-                    Arc::new(
-                        ClientConfig::builder()
-                            .with_root_certificates(RootCertStore {
-                                roots: TLS_SERVER_ROOTS.to_vec(),
-                            })
-                            .with_no_client_auth(),
-                    )
-                }
+                Arc::new(
+                    ClientConfig::with_platform_verifier()
+                        .expect("Failed to load the certificate needed to build TLS configuration"),
+                )
+            });
+            #[cfg(all(
+                any(feature = "rustls-aws-lc-webpki", feature = "rustls-ring-webpki"),
+                not(feature = "rustls-aws-lc-native"),
+                not(feature = "rustls-ring-native")
+            ))]
+            let rustls_config = RUSTLS_CONFIG.get_or_init(|| {
+                Arc::new(
+                    ClientConfig::builder()
+                        .with_root_certificates(RootCertStore {
+                            roots: TLS_SERVER_ROOTS.to_vec(),
+                        })
+                        .with_no_client_auth(),
+                )
             });
             let addresses = get_and_validate_socket_addresses(request.uri(), 443)?;
             let dns_name = ServerName::try_from(host)
                 .map_err(invalid_input_error)?
                 .to_owned();
-            let connection = ClientConnection::new(Arc::clone(rustls_config), dns_name)
-                .map_err(|e| Error::new(ErrorKind::Other, e))?;
+            let connection =
+                ClientConnection::new(Arc::clone(rustls_config), dns_name).map_err(Error::other)?;
             let stream = StreamOwned::new(connection, self.connect(&addresses)?);
             let stream =
                 encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?

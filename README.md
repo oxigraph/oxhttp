@@ -17,18 +17,14 @@ It aims at following the basic concepts of the [Web Fetch standard](https://fetc
 specific to web browsers (context, CORS...).
 
 HTTPS is supported behind the disabled by default features.
-To enable it you need to enable one of the following features:
+To enable it, you need to enable one of the following features:
 
 * `native-tls` to use the current system native implementation.
-* `rustls-ring-platform-verifier` to use [Rustls](https://github.com/rustls/rustls) with
-  the [Ring](https://github.com/briansmith/ring) cryptographic library and the host verifier or platform certificates.
 * `rustls-ring-webpki` to use [Rustls](https://github.com/rustls/rustls) with
   the [Ring](https://github.com/briansmith/ring) cryptographic library and
   the [Common CA Database](https://www.ccadb.org/).
 * `rustls-ring-native` to use [Rustls](https://github.com/rustls/rustls) with
   the [Ring](https://github.com/briansmith/ring) cryptographic library and the host certificates.
-* `rustls-aws-lc-platform-verifier` to use [Rustls](https://github.com/rustls/rustls) with
-  the [AWS Libcrypto for Rust](https://github.com/aws/aws-lc-rs) and the host verifier or platform certificates.
 * `rustls-aws-lc-webpki` to use [Rustls](https://github.com/rustls/rustls) with
   the [AWS Libcrypto for Rust](https://github.com/aws/aws-lc-rs) and
   the [Common CA Database](https://www.ccadb.org/).
