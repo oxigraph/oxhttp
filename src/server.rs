@@ -107,7 +107,7 @@ impl Server {
                 .into_iter()
                 .map(|listener_addr| {
                     let listener = TcpListener::bind(listener_addr)?;
-                    let thread_name = format!("{}: listener thread of OxHTTP", listener_addr);
+                    let thread_name = format!("{listener_addr}: listener thread of OxHTTP");
                     let thread_limit = thread_limit.clone();
                     let on_request = Arc::clone(&self.on_request);
                     let server = self.server.clone();
@@ -125,7 +125,7 @@ impl Server {
                                     if let Err(error) = stream.set_nodelay(true) {
                                         eprintln!("OxHTTP TCP error when attempting to set the TCP_NODELAY option: {error}");
                                     }
-                                    let thread_name = format!("{}: responding thread of OxHTTP", peer_addr);
+                                    let thread_name = format!("{peer_addr}: responding thread of OxHTTP");
                                     let thread_guard = thread_limit.as_ref().map(|s| s.lock());
                                     let on_request = Arc::clone(&on_request);
                                     let server = server.clone();
@@ -168,14 +168,11 @@ impl ListeningServer {
     pub fn join(self) -> Result<()> {
         for thread in self.threads {
             thread.join().map_err(|e| {
-                Error::new(
-                    ErrorKind::Other,
-                    if let Ok(e) = e.downcast::<&dyn fmt::Display>() {
-                        format!("The server thread panicked with error: {e}")
-                    } else {
-                        "The server thread panicked with an unknown error".into()
-                    },
-                )
+                Error::other(if let Ok(e) = e.downcast::<&dyn fmt::Display>() {
+                    format!("The server thread panicked with error: {e}")
+                } else {
+                    "The server thread panicked with an unknown error".into()
+                })
             })?;
         }
         Ok(())
