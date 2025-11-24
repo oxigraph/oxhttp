@@ -253,7 +253,7 @@ impl Client {
                     Err(e) => panic!("Error while loading TLS configuration: {}", e), // TODO: use get_or_try_init
                 })
                 .connect(host, stream)
-                .map_err(|e| Error::new(ErrorKind::Other, e))?;
+                .map_err(Error::other)?;
             let stream =
                 encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?
                     .into_inner()
