@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - run: rustup default 1.82.0 && rustup component add clippy
+      - run: rustup default 1.91.1 && rustup component add clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets -- -D warnings -D clippy::all
       - run: cargo clippy --all-targets --features native-tls -- -D warnings -D clippy::all
@@ -79,7 +79,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - run: rustup override set 1.82.0
+      - run: rustup override set 1.91.1
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --all-features --no-deps
         env:
@@ -114,6 +114,9 @@ jobs:
 
   codecov:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -135,10 +138,13 @@ jobs:
           files: codecov.json
           flags: rust
           fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
 
   codspeed:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v6
       - uses: Swatinem/rust-cache@v2
@@ -148,5 +154,4 @@ jobs:
       - uses: CodSpeedHQ/action@v4
         with:
           run: cargo codspeed run
-          token: ${{ secrets.CODSPEED_TOKEN }}
-          mode: instrumentation
+          mode: simulation
