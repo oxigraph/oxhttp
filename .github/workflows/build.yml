@@ -10,6 +10,12 @@ on:
   schedule:
     - cron: "12 3 * * 0"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
 jobs:
   fmt:
     runs-on: ubuntu-latest
@@ -115,7 +121,6 @@ jobs:
   codecov:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v6
@@ -143,7 +148,6 @@ jobs:
   codspeed:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v6
