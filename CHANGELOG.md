@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.2] - 2026-04-14
+
+### Changed
+
+- Allow`rustls-platform-verifier` to 0.7.
+
 ## [0.3.1] - 2025-06-06
 
 ### Changed
