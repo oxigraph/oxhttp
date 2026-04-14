@@ -548,7 +548,10 @@ mod tests {
     ))]
     #[test]
     fn test_redirection() -> Result<()> {
-        let client = Client::new().with_redirection_limit(5);
+        let client = Client::new()
+            .with_redirection_limit(5)
+            .with_user_agent("OxHTTP/1.0")
+            .unwrap();
         let response = client.request(
             Request::builder()
                 .uri("http://wikipedia.org")
