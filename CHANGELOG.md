@@ -4,13 +4,13 @@
 
 ### Changed
 
-- Allow`rustls-platform-verifier` to 0.7.
+- Allow `rustls-platform-verifier` 0.7.
 
 ## [0.3.1] - 2025-06-06
 
 ### Changed
 
-- Bump`rustls-platform-verifier` to 0.6.
+- Bump `rustls-platform-verifier` to 0.6.
 
 ## [0.3.0] - 2025-02-02
 
