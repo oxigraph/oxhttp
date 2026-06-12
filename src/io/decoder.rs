@@ -76,9 +76,8 @@ pub fn decode_request_headers(
             Authority::try_from(
                 request
                     .headers_ref()
-                    .unwrap()
-                    .get(HOST)
-                    .ok_or_else(|| invalid_data_error("No host header in HTTP request"))?
+                    .and_then(|headers| unique_header(headers, &HOST).transpose())
+                    .ok_or_else(|| invalid_data_error("No host header in HTTP request"))??
                     .as_bytes(),
             )
             .map_err(|e| invalid_data_error(format!("Invalid host header value: {e}")))?,
@@ -149,14 +148,14 @@ fn read_header_bytes(reader: impl BufRead) -> Result<Vec<u8>> {
                 },
             ));
         }
+        if buffer.len() > (MAX_HEADER_SIZE as usize) {
+            return Err(invalid_data_error("The headers size must fit in 8kb"));
+        }
         // We normalize line ends to plain \n
         if buffer.ends_with(b"\r\n") {
             buffer.pop();
             buffer.pop();
             buffer.push(b'\n')
-        }
-        if buffer.len() > (MAX_HEADER_SIZE as usize) {
-            return Err(invalid_data_error("The headers size should fit in 8kb"));
         }
         if buffer.ends_with(b"\n\n") {
             break; // end of buffer
@@ -166,39 +165,40 @@ fn read_header_bytes(reader: impl BufRead) -> Result<Vec<u8>> {
 }
 
 fn decode_body(headers: &HeaderMap, reader: impl BufRead + 'static) -> Result<Body> {
-    let content_length = headers.get(CONTENT_LENGTH);
-    let transfer_encoding = headers.get(TRANSFER_ENCODING);
-    if transfer_encoding.is_some() && content_length.is_some() {
-        return Err(invalid_data_error(
-            "Transfer-Encoding and Content-Length should not be set at the same time",
-        ));
-    }
-
-    let body = if let Some(content_length) = content_length {
-        let len = content_length
-            .to_str()
-            .map_err(invalid_data_error)?
-            .parse::<u64>()
-            .map_err(invalid_data_error)?;
-        Body::from_read_and_len(reader, len)
-    } else if let Some(transfer_encoding) = transfer_encoding {
-        if transfer_encoding.as_ref().eq_ignore_ascii_case(b"chunked") {
-            Body::from_chunked_transfer_payload(ChunkedDecoder {
-                reader,
-                buffer: Vec::with_capacity(DEFAULT_SIZE),
-                is_start: true,
-                chunk_position: 0,
-                chunk_size: 0,
-                trailers: None,
-            })
-        } else {
-            return Err(invalid_data_error(format!(
-                "Transfer-Encoding: {} is not supported",
-                transfer_encoding.to_str().map_err(invalid_data_error)?
-            )));
+    let content_length = unique_header(headers, &CONTENT_LENGTH)?;
+    let transfer_encoding = unique_header(headers, &TRANSFER_ENCODING)?;
+    let body = match (content_length, transfer_encoding) {
+        (Some(_), Some(_)) => {
+            return Err(invalid_data_error(
+                "Transfer-Encoding and Content-Length should not be set at the same time",
+            ))
         }
-    } else {
-        Body::empty()
+        (Some(content_length), None) => {
+            let len = content_length
+                .to_str()
+                .map_err(invalid_data_error)?
+                .parse::<u64>()
+                .map_err(invalid_data_error)?;
+            Body::from_read_and_len(reader, len)
+        }
+        (None, Some(transfer_encoding)) => {
+            if transfer_encoding.as_ref().eq_ignore_ascii_case(b"chunked") {
+                Body::from_chunked_transfer_payload(ChunkedDecoder {
+                    reader,
+                    buffer: Vec::with_capacity(DEFAULT_SIZE),
+                    is_start: true,
+                    chunk_position: 0,
+                    chunk_size: 0,
+                    trailers: None,
+                })
+            } else {
+                return Err(invalid_data_error(format!(
+                    "Transfer-Encoding: {} is not supported",
+                    transfer_encoding.to_str().map_err(invalid_data_error)?
+                )));
+            }
+        }
+        (None, None) => Body::empty(),
     };
 
     decode_content_encoding(body, headers)
@@ -218,7 +218,7 @@ fn decode_headers(from: &[Header<'_>], to: &mut HeaderMap) -> Result<()> {
 }
 
 fn decode_content_encoding(body: Body, headers: &HeaderMap) -> Result<Body> {
-    let Some(content_encoding) = headers.get(CONTENT_ENCODING) else {
+    let Some(content_encoding) = unique_header(headers, &CONTENT_ENCODING)? else {
         return Ok(body);
     };
     match content_encoding.as_ref() {
@@ -229,6 +229,15 @@ fn decode_content_encoding(body: Body, headers: &HeaderMap) -> Result<Body> {
         b"deflate" => Ok(body.decode_deflate()),
         _ => Ok(body),
     }
+}
+
+fn unique_header<'a>(headers: &'a HeaderMap, name: &HeaderName) -> Result<Option<&'a HeaderValue>> {
+    let mut headers = headers.get_all(name).iter();
+    let value = headers.next();
+    if headers.next().is_some() {
+        return Err(invalid_data_error(format!("{name} must be set only once")));
+    }
+    Ok(value)
 }
 
 struct ChunkedDecoder<R: BufRead> {
@@ -268,7 +277,9 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
             } else {
                 // chunk end
                 self.buffer.clear();
-                self.reader.read_until(b'\n', &mut self.buffer)?;
+                (&mut self.reader)
+                    .take(2)
+                    .read_until(b'\n', &mut self.buffer)?;
                 if self.buffer != b"\r\n" && self.buffer != b"\n" {
                     return Err(invalid_data_error("Invalid chunked element end"));
                 }
@@ -276,7 +287,12 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
 
             // We load a new chunk
             self.buffer.clear();
-            self.reader.read_until(b'\n', &mut self.buffer)?;
+            (&mut self.reader)
+                .take(2 * MAX_HEADER_SIZE)
+                .read_until(b'\n', &mut self.buffer)?;
+            if self.buffer.len() > (MAX_HEADER_SIZE as usize) {
+                return Err(invalid_data_error("The chunk size size must fit in 8kb"));
+            }
             self.chunk_position = 0;
             let Ok(httparse::Status::Complete((read, chunk_size))) =
                 httparse::parse_chunk_size(&self.buffer)
@@ -290,14 +306,15 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
 
             if self.chunk_size == 0 {
                 // we read the trailers
+                let mut reader = (&mut self.reader).take(2 * MAX_HEADER_SIZE); // Makes sure we do not buffer too much
                 self.buffer.clear();
                 self.buffer.push(b'\n');
                 loop {
-                    if self.reader.read_until(b'\n', &mut self.buffer)? == 0 {
+                    if reader.read_until(b'\n', &mut self.buffer)? == 0 {
                         return Err(invalid_data_error("Missing chunked encoding end"));
                     }
-                    if self.buffer.len() > 8 * 1024 {
-                        return Err(invalid_data_error("The trailers size should fit in 8kb"));
+                    if self.buffer.len() > (MAX_HEADER_SIZE as usize) {
+                        return Err(invalid_data_error("The trailers size must fit in 8kb"));
                     }
 
                     if self.buffer.ends_with(b"\r\n") {
