@@ -156,14 +156,14 @@ fn read_header_bytes(reader: impl BufRead) -> Result<Vec<u8>> {
                 },
             ));
         }
+        if buffer.len() > (MAX_HEADER_SIZE as usize) {
+            return Err(invalid_data_error("The headers size must fit in 8kb"));
+        }
         // We normalize line ends to plain \n
         if buffer.ends_with(b"\r\n") {
             buffer.pop();
             buffer.pop();
             buffer.push(b'\n')
-        }
-        if buffer.len() > (MAX_HEADER_SIZE as usize) {
-            return Err(invalid_data_error("The headers size should fit in 8kb"));
         }
         if buffer.ends_with(b"\n\n") {
             break; // end of buffer
@@ -173,39 +173,48 @@ fn read_header_bytes(reader: impl BufRead) -> Result<Vec<u8>> {
 }
 
 fn decode_body(headers: &HeaderMap, reader: impl BufRead + 'static) -> Result<Body> {
-    let content_length = headers.get(CONTENT_LENGTH);
-    let transfer_encoding = headers.get(TRANSFER_ENCODING);
-    if transfer_encoding.is_some() && content_length.is_some() {
-        return Err(invalid_data_error(
-            "Transfer-Encoding and Content-Length should not be set at the same time",
-        ));
-    }
-
-    let body = if let Some(content_length) = content_length {
-        let len = content_length
-            .to_str()
-            .map_err(invalid_data_error)?
-            .parse::<u64>()
-            .map_err(invalid_data_error)?;
-        Body::from_read_and_len(reader, len)
-    } else if let Some(transfer_encoding) = transfer_encoding {
-        if transfer_encoding.as_ref().eq_ignore_ascii_case(b"chunked") {
-            Body::from_chunked_transfer_payload(ChunkedDecoder {
-                reader,
-                buffer: Vec::with_capacity(DEFAULT_SIZE),
-                is_start: true,
-                chunk_position: 0,
-                chunk_size: 0,
-                trailers: None,
-            })
-        } else {
-            return Err(invalid_data_error(format!(
-                "Transfer-Encoding: {} is not supported",
-                transfer_encoding.to_str().map_err(invalid_data_error)?
-            )));
+    let mut content_lengths = headers.get_all(CONTENT_LENGTH).iter();
+    let mut transfer_encodings = headers.get_all(TRANSFER_ENCODING).iter();
+    let body = match (content_lengths.next(), transfer_encodings.next()) {
+        (Some(_), Some(_)) => {
+            return Err(invalid_data_error(
+                "Transfer-Encoding and Content-Length should not be set at the same time",
+            ))
         }
-    } else {
-        Body::empty()
+        (Some(content_length), None) => {
+            if content_lengths.next().is_some() {
+                return Err(invalid_data_error("Content-Length must be set only once"));
+            }
+            let len = content_length
+                .to_str()
+                .map_err(invalid_data_error)?
+                .parse::<u64>()
+                .map_err(invalid_data_error)?;
+            Body::from_read_and_len(reader, len)
+        }
+        (None, Some(transfer_encoding)) => {
+            if content_lengths.next().is_some() {
+                return Err(invalid_data_error(
+                    "Transfer-Encoding must be set only once",
+                ));
+            }
+            if transfer_encoding.as_ref().eq_ignore_ascii_case(b"chunked") {
+                Body::from_chunked_transfer_payload(ChunkedDecoder {
+                    reader,
+                    buffer: Vec::with_capacity(DEFAULT_SIZE),
+                    is_start: true,
+                    chunk_position: 0,
+                    chunk_size: 0,
+                    trailers: None,
+                })
+            } else {
+                return Err(invalid_data_error(format!(
+                    "Transfer-Encoding: {} is not supported",
+                    transfer_encoding.to_str().map_err(invalid_data_error)?
+                )));
+            }
+        }
+        (None, None) => Body::empty(),
     };
 
     decode_content_encoding(body, headers)
@@ -275,7 +284,9 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
             } else {
                 // chunk end
                 self.buffer.clear();
-                self.reader.read_until(b'\n', &mut self.buffer)?;
+                (&mut self.reader)
+                    .take(2)
+                    .read_until(b'\n', &mut self.buffer)?;
                 if self.buffer != b"\r\n" && self.buffer != b"\n" {
                     return Err(invalid_data_error("Invalid chunked element end"));
                 }
@@ -283,7 +294,12 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
 
             // We load a new chunk
             self.buffer.clear();
-            self.reader.read_until(b'\n', &mut self.buffer)?;
+            (&mut self.reader)
+                .take(2 * MAX_HEADER_SIZE)
+                .read_until(b'\n', &mut self.buffer)?;
+            if self.buffer.len() > (MAX_HEADER_SIZE as usize) {
+                return Err(invalid_data_error("The chunk size size must fit in 8kb"));
+            }
             self.chunk_position = 0;
             let Ok(httparse::Status::Complete((read, chunk_size))) =
                 httparse::parse_chunk_size(&self.buffer)
@@ -297,14 +313,15 @@ impl<R: BufRead> Read for ChunkedDecoder<R> {
 
             if self.chunk_size == 0 {
                 // we read the trailers
+                let mut reader = (&mut self.reader).take(2 * MAX_HEADER_SIZE); // Makes sure we do not buffer too much
                 self.buffer.clear();
                 self.buffer.push(b'\n');
                 loop {
-                    if self.reader.read_until(b'\n', &mut self.buffer)? == 0 {
+                    if reader.read_until(b'\n', &mut self.buffer)? == 0 {
                         return Err(invalid_data_error("Missing chunked encoding end"));
                     }
-                    if self.buffer.len() > 8 * 1024 {
-                        return Err(invalid_data_error("The trailers size should fit in 8kb"));
+                    if self.buffer.len() > (MAX_HEADER_SIZE as usize) {
+                        return Err(invalid_data_error("The trailers size must fit in 8kb"));
                     }
 
                     if self.buffer.ends_with(b"\r\n") {
