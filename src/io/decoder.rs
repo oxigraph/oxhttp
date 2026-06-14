@@ -1,6 +1,6 @@
 use crate::model::header::{CONTENT_ENCODING, CONTENT_LENGTH, HOST, TRANSFER_ENCODING};
 use crate::model::request::Builder as RequestBuilder;
-use crate::model::uri::{Authority, Parts as UriParts, PathAndQuery, Scheme};
+use crate::model::uri::{Authority, Scheme};
 use crate::model::{
     Body, ChunkedTransferPayload, HeaderMap, HeaderName, HeaderValue, Method, Request, Response,
     StatusCode, Uri, Version,
@@ -61,15 +61,9 @@ pub fn decode_request_headers(
     let path = parsed_request
         .path
         .ok_or_else(|| invalid_data_error("No path in the HTTP request"))?;
-    let mut uri_parts = if path == "*" {
-        let mut uri_parts = UriParts::default();
-        uri_parts.path_and_query = Some(PathAndQuery::from_static(""));
-        uri_parts
-    } else {
-        Uri::try_from(if path == "*" { "" } else { path })
-            .map_err(invalid_data_error)?
-            .into_parts()
-    };
+    let mut uri_parts = Uri::try_from(path)
+        .map_err(invalid_data_error)?
+        .into_parts();
     if is_connection_secure {
         if *uri_parts.scheme.get_or_insert(Scheme::HTTPS) != Scheme::HTTPS {
             return Err(invalid_data_error("The HTTPS URL scheme must be 'https"));
@@ -90,8 +84,7 @@ pub fn decode_request_headers(
             .map_err(|e| invalid_data_error(format!("Invalid host header value: {e}")))?,
         );
     }
-    request = request.uri(Uri::from_parts(uri_parts).unwrap());
-    Ok(request)
+    Ok(request.uri(Uri::from_parts(uri_parts).unwrap()))
 }
 
 pub fn decode_request_body(
@@ -436,7 +429,7 @@ mod tests {
         )?
         .body(())
         .unwrap();
-        assert_eq!(request.uri().to_string(), "http://www.example.org:8001/"); // TODO: should be http://www.example.org:8001
+        assert_eq!(request.uri().path(), "*");
         Ok(())
     }
 
