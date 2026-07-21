@@ -6,9 +6,10 @@ use crate::model::{
     StatusCode, Uri, Version,
 };
 use crate::utils::invalid_data_error;
-use httparse::Header;
+use httparse::{Header, ParserConfig};
 use std::cmp::min;
 use std::io::{BufRead, Error, ErrorKind, Read, Result};
+use std::mem::MaybeUninit;
 use std::str::FromStr;
 
 const DEFAULT_SIZE: usize = 1024;
@@ -20,10 +21,10 @@ pub fn decode_request_headers(
 ) -> Result<RequestBuilder> {
     // Let's read the headers
     let buffer = read_header_bytes(reader)?;
-    let mut headers = [httparse::EMPTY_HEADER; DEFAULT_SIZE];
-    let mut parsed_request = httparse::Request::new(&mut headers);
-    if parsed_request
-        .parse(&buffer)
+    let mut headers = [MaybeUninit::uninit(); DEFAULT_SIZE];
+    let mut parsed_request = httparse::Request::new(&mut []);
+    if ParserConfig::default()
+        .parse_request_with_uninit_headers(&mut parsed_request, &buffer, &mut headers)
         .map_err(invalid_data_error)?
         .is_partial()
     {
@@ -103,10 +104,10 @@ pub fn decode_request_body(
 pub fn decode_response(mut reader: impl BufRead + 'static) -> Result<Response<Body>> {
     // Let's read the headers
     let buffer = read_header_bytes(&mut reader)?;
-    let mut headers = [httparse::EMPTY_HEADER; DEFAULT_SIZE];
-    let mut parsed_response = httparse::Response::new(&mut headers);
-    if parsed_response
-        .parse(&buffer)
+    let mut headers = [MaybeUninit::uninit(); DEFAULT_SIZE];
+    let mut parsed_response = httparse::Response::new(&mut []);
+    if ParserConfig::default()
+        .parse_response_with_uninit_headers(&mut parsed_response, &buffer, &mut headers)
         .map_err(invalid_data_error)?
         .is_partial()
     {
