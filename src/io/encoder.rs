@@ -81,16 +81,18 @@ fn encode_body(body: &mut Body, writer: &mut impl Write, must_include_body: bool
     if let Some(length) = body.len() {
         if must_include_body || length > 0 {
             write!(writer, "content-length: {length}\r\n\r\n")?;
-            copy(body, writer)?;
+            if length > 0 {
+                copy(body, writer)?;
+            }
         } else {
             write!(writer, "\r\n")?;
         }
     } else {
         write!(writer, "transfer-encoding: chunked\r\n\r\n")?;
-        let mut buffer = vec![b'\0'; 4096];
+        let mut buffer = [0; 4096];
         loop {
             let mut read = 0;
-            while read < 1024 {
+            while read < buffer.len() {
                 // We try to avoid too small chunks
                 let new_read = body.read(&mut buffer[read..])?;
                 if new_read == 0 {
