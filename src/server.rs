@@ -261,7 +261,7 @@ fn read_body_and_build_response(
         Ok(mut request) => {
             let response = on_request(&mut request);
             // We make sure to finish reading the body
-            if let Err(error) = copy(request.body_mut(), &mut sink()) {
+            if let Err(error) = drain_body(request.body_mut()) {
                 (build_error(error), ConnectionState::Close) // TODO: ignore?
             } else {
                 let connection_state = request
@@ -303,6 +303,14 @@ fn build_text_response(status: StatusCode, text: String) -> Response<Body> {
         .header(CONTENT_TYPE, "text/plain; charset=utf-8")
         .body(Body::from(text))
         .unwrap()
+}
+
+fn drain_body(body: &mut Body) -> Result<()> {
+    if body.len() == Some(0) {
+        return Ok(()); // Nothing to drain
+    }
+    copy(body, &mut sink())?;
+    Ok(())
 }
 
 /// Dumb semaphore allowing to overflow capacity

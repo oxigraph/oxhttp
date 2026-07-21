@@ -39,7 +39,7 @@ impl Body {
         Self(BodyAlt::Sized {
             total_len: len,
             consumed_len: 0,
-            content: Box::new(read.take(len)),
+            content: Box::new(read),
         })
     }
 
