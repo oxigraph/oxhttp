@@ -6,8 +6,8 @@ use std::fmt;
 use std::io::{copy, sink, BufReader, BufWriter, Error, ErrorKind, Result, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{Builder as ThreadBuilder, JoinHandle};
-use std::time::Duration;
+use std::thread::{sleep, Builder as ThreadBuilder, JoinHandle};
+use std::time::{Duration, Instant};
 
 /// An HTTP server.
 ///
@@ -201,7 +201,7 @@ fn accept_request(
                         && expect.as_bytes().eq_ignore_ascii_case(b"100-continue")
                     {
                         stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
-                        read_body_and_build_response(request, reader, on_request)
+                        read_body_and_build_response(request, reader, &stream, on_request)
                     } else {
                         (
                             build_text_response(
@@ -215,7 +215,7 @@ fn accept_request(
                         )
                     }
                 } else {
-                    read_body_and_build_response(request, reader, on_request)
+                    read_body_and_build_response(request, reader, &stream, on_request)
                 }
             }
             Err(error) => {
@@ -246,6 +246,82 @@ fn accept_request(
     Ok(())
 }
 
+/// Lets a request handler know whether the client connection is still open.
+///
+/// The [`Server`] inserts it into the [extensions](Request::extensions) of each request before calling the request handler.
+/// A handler that runs a long computation can watch it from another thread and stop the computation when the client is gone.
+///
+/// ```no_run
+/// use oxhttp::{ConnectionWatch, Server};
+/// use oxhttp::model::{Body, Response};
+/// use std::sync::Arc;
+/// use std::sync::atomic::{AtomicBool, Ordering};
+/// use std::thread;
+///
+/// Server::new(|request| {
+///     let cancelled = Arc::new(AtomicBool::new(false));
+///     if let Some(watch) = request.extensions().get::<ConnectionWatch>().cloned() {
+///         let cancelled = Arc::clone(&cancelled);
+///         thread::spawn(move || {
+///             if watch.wait_closed(None) {
+///                 cancelled.store(true, Ordering::Relaxed);
+///             }
+///         });
+///     }
+///     // ... run a computation that checks `cancelled` ...
+///     Response::builder().body(Body::from("done")).unwrap()
+/// });
+/// ```
+#[derive(Clone)]
+pub struct ConnectionWatch {
+    stream: Arc<TcpStream>,
+}
+
+impl ConnectionWatch {
+    /// Blocks until the client closes the connection or `timeout` elapses.
+    ///
+    /// Returns `true` if the client closed the connection and `false` if the timeout elapsed first.
+    ///
+    /// The connection counts as closed when the client shut down its writing side or when the socket reported an error.
+    /// Bytes the client sends while waiting (the rest of the request body, or a pipelined next request) are left in place.
+    ///
+    /// The check wakes up at most every [global timeout](Server::with_global_timeout) of the server,
+    /// so this method might return up to one global timeout after the given `timeout` when the connection stays open.
+    pub fn wait_closed(&self, timeout: Option<Duration>) -> bool {
+        let deadline = timeout.map(|timeout| Instant::now() + timeout);
+        let mut buffer = [0; 1];
+        loop {
+            let has_pending_data = match self.stream.peek(&mut buffer) {
+                Ok(0) => return true, // EOF: the client closed its writing side
+                Ok(_) => true,
+                Err(error) => match error.kind() {
+                    ErrorKind::TimedOut | ErrorKind::WouldBlock | ErrorKind::Interrupted => false,
+                    _ => return true,
+                },
+            };
+            let remaining =
+                deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
+            if remaining == Some(Duration::ZERO) {
+                return false;
+            }
+            if has_pending_data {
+                // The client sent something we must not consume, so peek would return immediately.
+                // Let's wait a bit before trying again.
+                let pause = Duration::from_millis(100);
+                sleep(remaining.map_or(pause, |remaining| remaining.min(pause)));
+            }
+        }
+    }
+}
+
+impl fmt::Debug for ConnectionWatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConnectionWatch")
+            .field("peer_addr", &self.stream.peer_addr().ok())
+            .finish()
+    }
+}
+
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
 enum ConnectionState {
     Close,
@@ -255,10 +331,21 @@ enum ConnectionState {
 fn read_body_and_build_response(
     request: RequestBuilder,
     reader: BufReader<TcpStream>,
+    stream: &TcpStream,
     on_request: &dyn Fn(&mut Request<Body>) -> Response<Body>,
 ) -> (Response<Body>, ConnectionState) {
     match decode_request_body(request, reader) {
         Ok(mut request) => {
+            match stream.try_clone() {
+                Ok(stream) => {
+                    request.extensions_mut().insert(ConnectionWatch {
+                        stream: Arc::new(stream),
+                    });
+                }
+                Err(error) => {
+                    eprintln!("OxHTTP TCP error when attempting to clone the stream: {error}");
+                }
+            }
             let response = on_request(&mut request);
             // We make sure to finish reading the body
             if let Err(error) = drain_body(request.body_mut()) {
@@ -455,6 +542,95 @@ mod tests {
             stream.read_exact(&mut output)?;
             assert_eq!(output, response);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_connection_watch_detects_client_close() -> Result<()> {
+        let server_port = 9995;
+        let (sender, receiver) = std::sync::mpsc::channel();
+        Server::new(move |request| {
+            let watch = request
+                .extensions()
+                .get::<ConnectionWatch>()
+                .unwrap()
+                .clone();
+            let start = Instant::now();
+            let closed = watch.wait_closed(Some(Duration::from_secs(5)));
+            sender.send((closed, start.elapsed())).unwrap();
+            Response::builder().body(Body::from("home")).unwrap()
+        })
+        .bind((Ipv4Addr::LOCALHOST, server_port))
+        .with_global_timeout(Duration::from_secs(1))
+        .spawn()?;
+        sleep(Duration::from_millis(100)); // Makes sure the server is up
+        let mut stream = TcpStream::connect(("127.0.0.1", server_port))?;
+        stream.write_all(b"GET / HTTP/1.1\nhost: localhost:9995\n\n")?;
+        sleep(Duration::from_millis(200)); // Makes sure the handler is waiting
+        drop(stream);
+        let (closed, elapsed) = receiver.recv().unwrap();
+        assert!(closed);
+        assert!(elapsed < Duration::from_secs(2), "took {elapsed:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_connection_watch_timeout() -> Result<()> {
+        let server_port = 9994;
+        Server::new(|request| {
+            let watch = request
+                .extensions()
+                .get::<ConnectionWatch>()
+                .unwrap()
+                .clone();
+            let closed = watch.wait_closed(Some(Duration::from_millis(100)));
+            Response::builder()
+                .body(Body::from(if closed { "closed" } else { "open" }))
+                .unwrap()
+        })
+        .bind((Ipv4Addr::LOCALHOST, server_port))
+        .with_global_timeout(Duration::from_millis(100))
+        .spawn()?;
+        sleep(Duration::from_millis(100)); // Makes sure the server is up
+        let mut stream = TcpStream::connect(("127.0.0.1", server_port))?;
+        stream.write_all(b"GET / HTTP/1.1\nhost: localhost:9994\n\n")?;
+        let expected = b"HTTP/1.1 200 OK\r\ncontent-length: 4\r\n\r\nopen";
+        let mut output = vec![b'\0'; expected.len()];
+        stream.read_exact(&mut output)?;
+        assert_eq!(output, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_connection_watch_keeps_pending_bytes() -> Result<()> {
+        // A watcher thread peeks the socket while the request body is still unread:
+        // the body must still be readable by the handler.
+        let server_port = 9993;
+        Server::new(|request| {
+            let watch = request
+                .extensions()
+                .get::<ConnectionWatch>()
+                .unwrap()
+                .clone();
+            let watcher =
+                std::thread::spawn(move || watch.wait_closed(Some(Duration::from_millis(300))));
+            sleep(Duration::from_millis(200));
+            let mut body = String::new();
+            request.body_mut().read_to_string(&mut body).unwrap();
+            let closed = watcher.join().unwrap();
+            assert!(!closed);
+            Response::builder().body(Body::from(body)).unwrap()
+        })
+        .bind((Ipv4Addr::LOCALHOST, server_port))
+        .with_global_timeout(Duration::from_secs(1))
+        .spawn()?;
+        sleep(Duration::from_millis(100)); // Makes sure the server is up
+        let mut stream = TcpStream::connect(("127.0.0.1", server_port))?;
+        stream.write_all(b"POST / HTTP/1.1\nhost: localhost:9993\ncontent-length: 4\n\nabcd")?;
+        let expected = b"HTTP/1.1 200 OK\r\ncontent-length: 4\r\n\r\nabcd";
+        let mut output = vec![b'\0'; expected.len()];
+        stream.read_exact(&mut output)?;
+        assert_eq!(output, expected);
         Ok(())
     }
 }
