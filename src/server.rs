@@ -7,7 +7,7 @@ use std::io::{copy, sink, BufReader, BufWriter, Error, ErrorKind, Result, Write}
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{sleep, Builder as ThreadBuilder, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// An HTTP server.
 ///
@@ -260,65 +260,56 @@ fn accept_request(
 ///
 /// Server::new(|request| {
 ///     let cancelled = Arc::new(AtomicBool::new(false));
+///     let done = Arc::new(AtomicBool::new(false));
 ///     if let Some(watch) = request.extensions().get::<ConnectionWatch>().cloned() {
 ///         let cancelled = Arc::clone(&cancelled);
+///         let done = Arc::clone(&done);
 ///         thread::spawn(move || {
-///             if watch.wait_closed(None) {
-///                 cancelled.store(true, Ordering::Relaxed);
+///             while !done.load(Ordering::Relaxed) {
+///                 if watch.wait_closed() {
+///                     cancelled.store(true, Ordering::Relaxed);
+///                     return;
+///                 }
 ///             }
 ///         });
 ///     }
 ///     // ... run a computation that checks `cancelled` ...
+///     done.store(true, Ordering::Relaxed);
 ///     Response::builder().body(Body::from("done")).unwrap()
 /// });
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ConnectionWatch {
     stream: Arc<TcpStream>,
 }
 
 impl ConnectionWatch {
-    /// Blocks until the client closes the connection or `timeout` elapses.
+    /// Blocks until the client closes the connection or until one wait period ends.
     ///
-    /// Returns `true` if the client closed the connection and `false` if the timeout elapsed first.
+    /// Returns `true` if the client closed the connection and `false` if the wait period ended first.
+    /// Callers that want to keep watching call this method in a loop and check their own stop condition between calls.
     ///
     /// The connection counts as closed when the client shut down its writing side or when the socket reported an error.
     /// Bytes the client sends while waiting (the rest of the request body, or a pipelined next request) are left in place.
     ///
-    /// The check wakes up at most every [global timeout](Server::with_global_timeout) of the server,
-    /// so this method might return up to one global timeout after the given `timeout` when the connection stays open.
-    pub fn wait_closed(&self, timeout: Option<Duration>) -> bool {
-        let deadline = timeout.map(|timeout| Instant::now() + timeout);
+    /// The wait period is the [global timeout](Server::with_global_timeout) of the server.
+    /// It is 100ms if the client already sent bytes that are not read yet.
+    /// Without a global timeout, this method blocks until the client closes the connection or sends bytes.
+    pub fn wait_closed(&self) -> bool {
         let mut buffer = [0; 1];
-        loop {
-            let has_pending_data = match self.stream.peek(&mut buffer) {
-                Ok(0) => return true, // EOF: the client closed its writing side
-                Ok(_) => true,
-                Err(error) => match error.kind() {
-                    ErrorKind::TimedOut | ErrorKind::WouldBlock | ErrorKind::Interrupted => false,
-                    _ => return true,
-                },
-            };
-            let remaining =
-                deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
-            if remaining == Some(Duration::ZERO) {
-                return false;
-            }
-            if has_pending_data {
+        match self.stream.peek(&mut buffer) {
+            Ok(0) => true, // EOF: the client closed its writing side
+            Ok(_) => {
                 // The client sent something we must not consume, so peek would return immediately.
-                // Let's wait a bit before trying again.
-                let pause = Duration::from_millis(100);
-                sleep(remaining.map_or(pause, |remaining| remaining.min(pause)));
+                // Let's wait a bit to avoid busy loops in the caller.
+                sleep(Duration::from_millis(100));
+                false
             }
+            Err(error) => !matches!(
+                error.kind(),
+                ErrorKind::TimedOut | ErrorKind::WouldBlock | ErrorKind::Interrupted
+            ),
         }
-    }
-}
-
-impl fmt::Debug for ConnectionWatch {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ConnectionWatch")
-            .field("peer_addr", &self.stream.peer_addr().ok())
-            .finish()
     }
 }
 
@@ -453,6 +444,7 @@ mod tests {
     use std::io::Read;
     use std::net::{Ipv4Addr, Ipv6Addr};
     use std::thread::sleep;
+    use std::time::Instant;
 
     #[test]
     fn test_regular_http_operations() -> Result<()> {
@@ -556,7 +548,10 @@ mod tests {
                 .unwrap()
                 .clone();
             let start = Instant::now();
-            let closed = watch.wait_closed(Some(Duration::from_secs(5)));
+            let mut closed = false;
+            while !closed && start.elapsed() < Duration::from_secs(5) {
+                closed = watch.wait_closed();
+            }
             sender.send((closed, start.elapsed())).unwrap();
             Response::builder().body(Body::from("home")).unwrap()
         })
@@ -575,7 +570,8 @@ mod tests {
     }
 
     #[test]
-    fn test_connection_watch_timeout() -> Result<()> {
+    fn test_connection_watch_returns_after_global_timeout() -> Result<()> {
+        // The client stays silent: wait_closed must return once the global timeout elapses.
         let server_port = 9994;
         Server::new(|request| {
             let watch = request
@@ -583,7 +579,7 @@ mod tests {
                 .get::<ConnectionWatch>()
                 .unwrap()
                 .clone();
-            let closed = watch.wait_closed(Some(Duration::from_millis(100)));
+            let closed = watch.wait_closed();
             Response::builder()
                 .body(Body::from(if closed { "closed" } else { "open" }))
                 .unwrap()
@@ -612,8 +608,14 @@ mod tests {
                 .get::<ConnectionWatch>()
                 .unwrap()
                 .clone();
-            let watcher =
-                std::thread::spawn(move || watch.wait_closed(Some(Duration::from_millis(300))));
+            let watcher = std::thread::spawn(move || {
+                let start = Instant::now();
+                let mut closed = false;
+                while !closed && start.elapsed() < Duration::from_millis(300) {
+                    closed = watch.wait_closed();
+                }
+                closed
+            });
             sleep(Duration::from_millis(200));
             let mut body = String::new();
             request.body_mut().read_to_string(&mut body).unwrap();
