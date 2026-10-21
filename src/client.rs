@@ -44,15 +44,6 @@ use rustls_pki_types::ServerName;
 use rustls_platform_verifier::ConfigVerifierExt;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Result};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-#[cfg(all(
-    any(
-        feature = "rustls-aws-lc-webpki",
-        feature = "rustls-ring-webpki",
-        feature = "rustls-aws-lc-native",
-        feature = "rustls-ring-native"
-    ),
-    not(feature = "native-tls")
-))]
 use std::sync::Arc;
 #[cfg(any(
     feature = "rustls-aws-lc-webpki",
@@ -71,6 +62,25 @@ use url::Url;
     not(feature = "rustls-ring-native"),
 ))]
 use webpki_roots::TLS_SERVER_ROOTS;
+
+/// Resolves a request URI to the socket addresses the client is allowed to
+/// connect to.
+///
+/// Custom resolvers may implement application-specific DNS resolution or
+/// destination policies. The URI hostname is still used for the HTTP `Host`
+/// header and TLS certificate verification.
+pub trait Resolver: Send + Sync + 'static {
+    fn resolve(&self, uri: &Uri, default_port: u16) -> Result<Vec<SocketAddr>>;
+}
+
+impl<F> Resolver for F
+where
+    F: Fn(&Uri, u16) -> Result<Vec<SocketAddr>> + Send + Sync + 'static,
+{
+    fn resolve(&self, uri: &Uri, default_port: u16) -> Result<Vec<SocketAddr>> {
+        self(uri, default_port)
+    }
+}
 
 /// An HTTP client.
 ///
@@ -119,6 +129,7 @@ pub struct Client {
     timeout: Option<Duration>,
     user_agent: Option<HeaderValue>,
     redirection_limit: usize,
+    resolver: Option<Arc<dyn Resolver>>,
 }
 
 impl Client {
@@ -149,6 +160,16 @@ impl Client {
     #[inline]
     pub fn with_redirection_limit(mut self, limit: usize) -> Self {
         self.redirection_limit = limit;
+        self
+    }
+
+    /// Sets the resolver used for the initial request and every redirect.
+    ///
+    /// The returned addresses are passed directly to the connection attempt,
+    /// while the URI hostname remains unchanged for HTTP and TLS.
+    #[inline]
+    pub fn with_resolver(mut self, resolver: impl Resolver) -> Self {
+        self.resolver = Some(Arc::new(resolver));
         self
     }
 
@@ -232,7 +253,7 @@ impl Client {
         })?;
 
         if *scheme == Scheme::HTTP {
-            let addresses = get_and_validate_socket_addresses(request.uri(), 80)?;
+            let addresses = self.resolve_socket_addresses(request.uri(), 80)?;
             let stream = self.connect(&addresses)?;
             let stream =
                 encode_request(request, BufWriter::with_capacity(BUFFER_CAPACITY, stream))?
@@ -245,7 +266,7 @@ impl Client {
         if *scheme == Scheme::HTTPS {
             static TLS_CONNECTOR: OnceLock<TlsConnector> = OnceLock::new();
 
-            let addresses = get_and_validate_socket_addresses(request.uri(), 443)?;
+            let addresses = self.resolve_socket_addresses(request.uri(), 443)?;
             let stream = self.connect(&addresses)?;
             let stream = TLS_CONNECTOR
                 .get_or_init(|| match TlsConnector::new() {
@@ -294,7 +315,7 @@ impl Client {
                         .with_no_client_auth(),
                 )
             });
-            let addresses = get_and_validate_socket_addresses(request.uri(), 443)?;
+            let addresses = self.resolve_socket_addresses(request.uri(), 443)?;
             let dns_name = ServerName::try_from(host)
                 .map_err(invalid_input_error)?
                 .to_owned();
@@ -322,6 +343,28 @@ impl Client {
         Err(invalid_input_error(format!(
             "Not supported URL scheme: {scheme}"
         )))
+    }
+
+    fn resolve_socket_addresses(&self, uri: &Uri, default_port: u16) -> Result<Vec<SocketAddr>> {
+        let addresses = if let Some(resolver) = &self.resolver {
+            resolver.resolve(uri, default_port)?
+        } else {
+            default_resolve(uri, default_port)?
+        };
+        if addresses.is_empty() {
+            return Err(invalid_input_error(format!(
+                "No socket addresses resolved for request URL {uri}"
+            )));
+        }
+        for address in &addresses {
+            if BAD_PORTS.binary_search(&address.port()).is_ok() {
+                return Err(invalid_input_error(format!(
+                    "The port {} is not allowed for HTTP(S) because it is dedicated to an other use",
+                    address.port()
+                )));
+            }
+        }
+        Ok(addresses)
     }
 
     fn connect(&self, addresses: &[SocketAddr]) -> Result<TcpStream> {
@@ -361,21 +404,12 @@ const BAD_PORTS: [u16; 80] = [
     6697, 10080,
 ];
 
-fn get_and_validate_socket_addresses(uri: &Uri, default_port: u16) -> Result<Vec<SocketAddr>> {
+fn default_resolve(uri: &Uri, default_port: u16) -> Result<Vec<SocketAddr>> {
     let host = uri
         .host()
         .ok_or_else(|| invalid_input_error(format!("No host in request URL {uri}")))?;
     let port = uri.port_u16().unwrap_or(default_port);
-    let addresses = (host, port).to_socket_addrs()?.collect::<Vec<_>>();
-    for address in &addresses {
-        if BAD_PORTS.binary_search(&address.port()).is_ok() {
-            return Err(invalid_input_error(format!(
-                "The port {} is not allowed for HTTP(S) because it is dedicated to an other use",
-                address.port()
-            )));
-        }
-    }
-    Ok(addresses)
+    Ok((host, port).to_socket_addrs()?.collect())
 }
 
 fn join_urls(base: &Uri, relative: &str) -> Result<Uri> {
@@ -467,6 +501,100 @@ mod tests {
                     .unwrap(),
             )
             .is_err());
+    }
+
+    #[test]
+    fn test_custom_resolver() -> Result<()> {
+        let expected = "192.0.2.1:8080".parse().unwrap();
+        let client = Client::new().with_resolver(move |uri: &Uri, default_port| {
+            assert_eq!(uri, &"http://example.test/path".parse::<Uri>().unwrap());
+            assert_eq!(default_port, 80);
+            Ok(vec![expected])
+        });
+        assert_eq!(
+            client.resolve_socket_addresses(
+                &"http://example.test/path".parse::<Uri>().unwrap(),
+                80
+            )?,
+            vec![expected]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_custom_resolver_empty_result() {
+        let client = Client::new().with_resolver(|_: &Uri, _| Ok(Vec::new()));
+        assert!(client
+            .resolve_socket_addresses(&"http://example.test".parse::<Uri>().unwrap(), 80)
+            .is_err());
+    }
+
+    #[test]
+    fn test_custom_resolver_cannot_bypass_bad_port_check() {
+        let client =
+            Client::new().with_resolver(|_: &Uri, _| Ok(vec!["192.0.2.1:22".parse().unwrap()]));
+        assert!(client
+            .resolve_socket_addresses(&"http://example.test".parse::<Uri>().unwrap(), 80)
+            .is_err());
+    }
+
+    #[cfg(feature = "server")]
+    #[test]
+    fn test_custom_resolver_is_used_for_redirects() -> Result<()> {
+        use crate::model::header::LOCATION;
+        use crate::Server;
+        use std::net::{IpAddr, Ipv4Addr, TcpListener};
+        use std::sync::Mutex;
+
+        fn unused_local_port() -> Result<u16> {
+            Ok(TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?
+                .local_addr()?
+                .port())
+        }
+
+        let redirect_port = unused_local_port()?;
+        let destination_port = unused_local_port()?;
+        let destination_url = format!("http://destination.example:{destination_port}/");
+        let _redirect_server = Server::new(move |_| {
+            Response::builder()
+                .status(StatusCode::FOUND)
+                .header(LOCATION, &destination_url)
+                .body(Body::empty())
+                .unwrap()
+        })
+        .bind((Ipv4Addr::LOCALHOST, redirect_port))
+        .spawn()?;
+        let _destination_server =
+            Server::new(|_| Response::builder().body(Body::from("redirected")).unwrap())
+                .bind((Ipv4Addr::LOCALHOST, destination_port))
+                .spawn()?;
+
+        let resolved_hosts = Arc::new(Mutex::new(Vec::new()));
+        let resolver_hosts = Arc::clone(&resolved_hosts);
+        let client = Client::new().with_redirection_limit(1).with_resolver(
+            move |uri: &Uri, default_port| {
+                resolver_hosts
+                    .lock()
+                    .unwrap()
+                    .push(uri.host().unwrap().to_owned());
+                Ok(vec![SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::LOCALHOST),
+                    uri.port_u16().unwrap_or(default_port),
+                )])
+            },
+        );
+        let response = client.request(
+            Request::builder()
+                .uri(format!("http://source.example:{redirect_port}/"))
+                .body(())
+                .unwrap(),
+        )?;
+        assert_eq!(response.into_body().to_string()?, "redirected");
+        assert_eq!(
+            *resolved_hosts.lock().unwrap(),
+            ["source.example", "destination.example"]
+        );
+        Ok(())
     }
 
     #[cfg(any(
