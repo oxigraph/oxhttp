@@ -110,7 +110,10 @@ use webpki_roots::TLS_SERVER_ROOTS;
 ///         .body(Body::empty())?,
 /// )?;
 /// assert_eq!(response.status(), StatusCode::OK);
-/// assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
+/// assert_eq!(
+///     response.headers().get(CONTENT_TYPE).unwrap(),
+///     "text/html; charset=utf-8"
+/// );
 /// let body = response.into_body().to_string()?;
 /// # Result::<_,Box<dyn std::error::Error>>::Ok(())
 /// ```
@@ -419,7 +422,10 @@ mod tests {
                 .unwrap(),
         )?;
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
+        assert_eq!(
+            response.headers().get(CONTENT_TYPE).unwrap(),
+            "text/html; charset=utf-8"
+        );
         let body = response.into_body().to_string()?;
         assert!(body.contains("<html"));
         Ok(())
@@ -438,7 +444,10 @@ mod tests {
                 .unwrap(),
         )?;
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
+        assert_eq!(
+            response.headers().get(CONTENT_TYPE).unwrap(),
+            "text/html; charset=utf-8"
+        );
         Ok(())
     }
 
@@ -452,7 +461,10 @@ mod tests {
                 .unwrap(),
         )?;
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
+        assert_eq!(
+            response.headers().get(CONTENT_TYPE).unwrap(),
+            "text/html; charset=utf-8"
+        );
         Ok(())
     }
 
@@ -486,7 +498,10 @@ mod tests {
                 .unwrap(),
         )?;
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
+        assert_eq!(
+            response.headers().get(CONTENT_TYPE).unwrap(),
+            "text/html; charset=utf-8"
+        );
         Ok(())
     }
 
