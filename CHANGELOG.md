@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Server: `ConnectionWatch` in the request extensions lets a handler wait until the client closes the connection.
+
+
 ## [0.3.3] - 2026-06-17
 
 ### Changed
