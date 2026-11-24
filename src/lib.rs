@@ -20,6 +20,6 @@ mod server;
 mod utils;
 
 #[cfg(feature = "client")]
-pub use client::Client;
+pub use client::{Client, Resolver};
 #[cfg(feature = "server")]
 pub use server::{ListeningServer, Server};
